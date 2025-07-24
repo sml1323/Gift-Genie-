@@ -1,0 +1,19 @@
+# Nginx 로그 파일들
+*.log
+access.log*
+error.log*
+
+# 임시 설정 파일들
+*.tmp
+*.backup
+*~
+
+# SSL 인증서 (보안상 제외)
+*.pem
+*.key
+*.crt
+
+# 이 파일들은 유지
+!.gitignore
+!README.md
+!*.conf.template

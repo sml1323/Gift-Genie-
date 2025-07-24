@@ -1,0 +1,24 @@
+# 배포 과정에서 생성되는 임시 파일들
+*.log
+deploy.log
+rollback.log
+temp/
+tmp/
+
+# 배포 키 및 인증 정보 (보안)
+*.pem
+*.key
+.ssh/
+credentials/
+secrets/
+
+# 환경별 배포 설정 (보안)
+.env.deploy
+.env.production
+
+# 이 파일들은 유지
+!.gitignore
+!README.md
+!*.sh
+!*.yml
+!*.yaml

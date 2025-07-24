@@ -1,0 +1,18 @@
+# Docker 관련 임시 파일들
+*.log
+*.pid
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker 볼륨 데이터
+volumes/
+
+# 개발 중 생성되는 임시 파일들
+tmp/
+temp/
+
+# 이 .gitignore 파일은 유지
+!.gitignore
+!README.md

@@ -1,0 +1,21 @@
+# 빌드 과정에서 생성되는 임시 파일들
+*.log
+build.log
+temp/
+tmp/
+
+# 빌드 아티팩트 (배포용 제외)
+dist/
+build/
+output/
+
+# 환경별 빌드 설정 (보안)
+.env.build
+.env.prod
+
+# 이 파일들은 유지
+!.gitignore
+!README.md
+!*.sh
+!*.js
+!*.json

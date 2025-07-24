@@ -1,0 +1,21 @@
+# 개발 중 생성되는 임시 파일들
+*.log
+dev.log
+debug.log
+temp/
+tmp/
+
+# 개발 데이터베이스 백업
+*.sql.backup
+db_dump_*
+
+# 개발 환경 변수 (보안)
+.env.local
+.env.development
+
+# 이 파일들은 유지
+!.gitignore
+!README.md
+!*.sh
+!*.js
+!setup-*
