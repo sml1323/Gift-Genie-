@@ -405,7 +405,8 @@ class NaverGiftRecommendationEngine:
             budget_products = []
             for p in naver_products:
                 price_usd = p.lprice // USD_TO_KRW_RATE
-                if request.budget_min <= price_usd <= request.budget_max:
+                # 예산 범위를 약간 넓혀서 더 많은 상품 매칭
+                if (request.budget_min * 0.8) <= price_usd <= (request.budget_max * 1.2):
                     budget_products.append(p)
             
             if budget_products and i < len(budget_products):

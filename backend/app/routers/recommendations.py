@@ -94,6 +94,21 @@ async def create_recommendations(
     return await create_naver_recommendations(request, background_tasks)
 
 
+@router.post("/recommendations/enhanced", response_model=EnhancedRecommendationResponse)
+async def create_enhanced_recommendations(
+    request: GiftRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Create enhanced gift recommendations (legacy frontend compatibility)
+    
+    This endpoint provides the same functionality as /recommendations/naver
+    but maintains compatibility with older frontend versions.
+    """
+    # Use the same Naver Shopping implementation
+    return await create_naver_recommendations(request, background_tasks)
+
+
 @router.get("/recommendations/{request_id}")
 async def get_recommendation_status(request_id: str):
     """
