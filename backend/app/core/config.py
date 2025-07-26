@@ -30,18 +30,13 @@ class Settings(BaseModel):
     
     # API Keys
     openai_api_key: Optional[str] = None
-    brave_search_api_key: Optional[str] = None
-    apify_api_key: Optional[str] = None
+    naver_client_id: Optional[str] = None
+    naver_client_secret: Optional[str] = None
     
     # API Limits
     max_recommendations: int = 5
     api_timeout: int = 30
     rate_limit_per_minute: int = 10
-    
-    # MCP Configuration
-    enable_mcp_pipeline: bool = True
-    enable_brave_search: bool = True
-    enable_apify_scraping: bool = True
     
     # Logging
     log_level: str = "INFO"
@@ -50,8 +45,8 @@ class Settings(BaseModel):
         # Load from environment variables if not provided
         env_values = {
             "openai_api_key": os.getenv("OPENAI_API_KEY"),
-            "brave_search_api_key": os.getenv("BRAVE_SEARCH_API_KEY"),
-            "apify_api_key": os.getenv("APIFY_API_KEY"),
+            "naver_client_id": os.getenv("NAVER_CLIENT_ID"),
+            "naver_client_secret": os.getenv("NAVER_CLIENT_SECRET"),
             "environment": os.getenv("ENVIRONMENT", "development"),
             "debug": os.getenv("DEBUG", "false").lower() == "true",
             "log_level": os.getenv("LOG_LEVEL", "INFO"),
@@ -80,9 +75,7 @@ def is_simulation_mode() -> bool:
     """Check if application is running in simulation mode"""
     return (
         not settings.openai_api_key or
-        settings.openai_api_key == "your-openai-api-key-here" or
-        not settings.brave_search_api_key or
-        not settings.apify_api_key
+        settings.openai_api_key == "your-openai-api-key-here"
     )
 
 
@@ -93,16 +86,9 @@ def get_api_status() -> dict:
             "configured": bool(settings.openai_api_key and settings.openai_api_key != "your-openai-api-key-here"),
             "simulation_mode": not settings.openai_api_key or settings.openai_api_key == "your-openai-api-key-here"
         },
-        "brave_search": {
-            "configured": bool(settings.brave_search_api_key),
-            "enabled": settings.enable_brave_search
+        "naver_shopping": {
+            "configured": bool(settings.naver_client_id and settings.naver_client_secret),
+            "simulation_mode": not settings.naver_client_id or not settings.naver_client_secret
         },
-        "apify": {
-            "configured": bool(settings.apify_api_key),
-            "enabled": settings.enable_apify_scraping
-        },
-        "mcp_pipeline": {
-            "enabled": settings.enable_mcp_pipeline,
-            "simulation_mode": is_simulation_mode()
-        }
+        "simulation_mode": is_simulation_mode()
     }

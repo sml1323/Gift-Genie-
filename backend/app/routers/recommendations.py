@@ -10,7 +10,6 @@ from fastapi.responses import JSONResponse
 
 from models.request.recommendation import GiftRequest
 from models.response.recommendation import EnhancedRecommendationResponse, RecommendationResponse
-from services.ai.enhanced_recommendation_engine import EnhancedGiftRecommendationEngine
 from services.ai.recommendation_engine import GiftRecommendationEngine
 
 logger = logging.getLogger(__name__)
@@ -18,62 +17,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Initialize engines (will be moved to dependency injection later)
-def get_enhanced_engine():
-    """Get enhanced recommendation engine instance"""
-    return EnhancedGiftRecommendationEngine(
-        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        brave_api_key=os.getenv("BRAVE_SEARCH_API_KEY", ""),
-        apify_api_key=os.getenv("APIFY_API_KEY", "")
-    )
-
 def get_basic_engine():
     """Get basic recommendation engine instance"""
     return GiftRecommendationEngine(
         api_key=os.getenv("OPENAI_API_KEY", "")
     )
 
+def get_naver_engine():
+    """Get Naver Shopping recommendation engine instance"""
+    from services.ai.naver_recommendation_engine import NaverGiftRecommendationEngine
+    return NaverGiftRecommendationEngine(
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        naver_client_id=os.getenv("NAVER_CLIENT_ID", ""),
+        naver_client_secret=os.getenv("NAVER_CLIENT_SECRET", "")
+    )
 
-@router.post("/recommendations/enhanced", response_model=EnhancedRecommendationResponse)
-async def create_enhanced_recommendations(
-    request: GiftRequest,
-    background_tasks: BackgroundTasks
-):
-    """
-    Create enhanced gift recommendations using full MCP pipeline
-    
-    This endpoint uses the complete MCP (Model Context Protocol) pipeline:
-    1. AI-powered recommendation generation
-    2. Product search via Brave Search API
-    3. Detailed product scraping via Apify
-    4. Integration and enhancement of results
-    """
-    try:
-        logger.info(f"Enhanced recommendation request: {request.recipient_age}yo {request.recipient_gender}, budget ${request.budget_min}-{request.budget_max}")
-        
-        engine = get_enhanced_engine()
-        response = await engine.generate_enhanced_recommendations(request)
-        
-        # Log metrics in background
-        if response.success:
-            background_tasks.add_task(
-                log_recommendation_metrics,
-                response.request_id,
-                response.pipeline_metrics,
-                len(response.recommendations)
-            )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Enhanced recommendation failed: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "recommendation_failed",
-                "message": "Failed to generate enhanced recommendations. Please try again.",
-                "fallback_suggestion": "Try the basic recommendations endpoint: /api/v1/recommendations/basic"
-            }
-        )
+
 
 
 @router.post("/recommendations/basic", response_model=RecommendationResponse)
@@ -123,41 +82,16 @@ async def create_basic_recommendations(
 @router.post("/recommendations", response_model=EnhancedRecommendationResponse)
 async def create_recommendations(
     request: GiftRequest,
-    background_tasks: BackgroundTasks,
-    mode: str = "enhanced"
+    background_tasks: BackgroundTasks
 ):
     """
-    Create gift recommendations (default endpoint)
+    Create gift recommendations (default endpoint - uses Naver Shopping)
     
-    Parameters:
-    - mode: "enhanced" (default) for full MCP pipeline, "basic" for AI-only
+    This endpoint redirects to the Naver Shopping API endpoint for
+    real product recommendations with Korean market integration.
     """
-    if mode == "basic":
-        basic_response = await create_basic_recommendations(request, background_tasks)
-        # Convert to enhanced format for consistency
-        return EnhancedRecommendationResponse(
-            request_id=basic_response.request_id,
-            recommendations=basic_response.recommendations,
-            search_results=[],
-            pipeline_metrics={
-                "ai_generation_time": basic_response.total_processing_time,
-                "search_execution_time": 0.0,
-                "scraping_execution_time": 0.0,
-                "integration_time": 0.0,
-                "total_time": basic_response.total_processing_time,
-                "search_results_count": 0,
-                "product_details_count": 0,
-                "cache_simulation": True
-            },
-            total_processing_time=basic_response.total_processing_time,
-            created_at=basic_response.created_at,
-            success=basic_response.success,
-            mcp_enabled=False,
-            simulation_mode=True,
-            error_message=basic_response.error_message
-        )
-    else:
-        return await create_enhanced_recommendations(request, background_tasks)
+    # Redirect to Naver Shopping endpoint for best results
+    return await create_naver_recommendations(request, background_tasks)
 
 
 @router.get("/recommendations/{request_id}")
@@ -177,17 +111,6 @@ async def get_recommendation_status(request_id: str):
     )
 
 
-async def log_recommendation_metrics(request_id: str, metrics, recommendation_count: int):
-    """Background task to log recommendation metrics"""
-    logger.info(f"Recommendation metrics for {request_id}:")
-    logger.info(f"  - Total time: {metrics.total_time:.2f}s")
-    logger.info(f"  - AI generation: {metrics.ai_generation_time:.2f}s")
-    logger.info(f"  - Search: {metrics.search_execution_time:.2f}s")
-    logger.info(f"  - Scraping: {metrics.scraping_execution_time:.2f}s")
-    logger.info(f"  - Integration: {metrics.integration_time:.2f}s")
-    logger.info(f"  - Recommendations: {recommendation_count}")
-    logger.info(f"  - Search results: {metrics.search_results_count}")
-    logger.info(f"  - Enhanced products: {metrics.product_details_count}")
 
 
 async def log_basic_metrics(request_id: str, processing_time: float, recommendation_count: int):
@@ -195,6 +118,68 @@ async def log_basic_metrics(request_id: str, processing_time: float, recommendat
     logger.info(f"Basic recommendation metrics for {request_id}:")
     logger.info(f"  - Total time: {processing_time:.2f}s")
     logger.info(f"  - Recommendations: {recommendation_count}")
+
+
+@router.post("/recommendations/naver", response_model=EnhancedRecommendationResponse)
+async def create_naver_recommendations(
+    request: GiftRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Create gift recommendations using Naver Shopping API
+    
+    This endpoint uses direct Naver Shopping API integration:
+    1. AI-powered recommendation generation
+    2. Real product search via Naver Shopping API
+    3. Price comparison and optimization
+    4. Integration of AI recommendations with real products
+    
+    Benefits:
+    - Real Korean products with actual purchase links
+    - Accurate pricing in KRW (converted to USD for compatibility)
+    - No MCP dependencies, faster response time
+    - Better local market relevance
+    """
+    try:
+        logger.info(f"Naver Shopping recommendation request: {request.recipient_age}yo {request.recipient_gender}, budget ${request.budget_min}-{request.budget_max}")
+        
+        engine = get_naver_engine()
+        response = await engine.generate_naver_recommendations(request)
+        
+        # Log metrics in background
+        if response.success:
+            background_tasks.add_task(
+                log_naver_metrics,
+                response.request_id,
+                response.pipeline_metrics,
+                len(response.recommendations)
+            )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Naver Shopping recommendation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "naver_recommendation_failed",
+                "message": "Failed to generate Naver Shopping recommendations. Please try again.",
+                "fallback_suggestion": "Try the basic recommendations endpoint: /api/v1/recommendations/basic",
+                "naver_api_required": "Ensure NAVER_CLIENT_ID and NAVER_CLIENT_SECRET are set"
+            }
+        )
+
+
+async def log_naver_metrics(request_id: str, metrics, recommendation_count: int):
+    """Background task to log Naver Shopping recommendation metrics"""
+    logger.info(f"Naver Shopping metrics for {request_id}:")
+    logger.info(f"  - Total time: {metrics.total_time:.2f}s")
+    logger.info(f"  - AI generation: {metrics.ai_generation_time:.2f}s")
+    logger.info(f"  - Naver search: {metrics.search_execution_time:.2f}s")
+    logger.info(f"  - Integration: {metrics.integration_time:.2f}s")
+    logger.info(f"  - Recommendations: {recommendation_count}")
+    logger.info(f"  - Search results: {metrics.search_results_count}")
+    logger.info(f"  - Simulation mode: {metrics.cache_simulation}")
 
 
 # Note: Exception handlers should be added to the main app, not router

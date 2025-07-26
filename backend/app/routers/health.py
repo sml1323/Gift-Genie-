@@ -29,8 +29,7 @@ async def health_check():
         services={
             "api": "running",
             "openai": "configured" if os.getenv("OPENAI_API_KEY") else "not_configured",
-            "brave_search": "configured" if os.getenv("BRAVE_SEARCH_API_KEY") else "not_configured",
-            "apify": "configured" if os.getenv("APIFY_API_KEY") else "not_configured"
+            "naver_shopping": "configured" if (os.getenv("NAVER_CLIENT_ID") and os.getenv("NAVER_CLIENT_SECRET")) else "not_configured"
         }
     )
 
@@ -53,19 +52,15 @@ async def detailed_health_check():
                 "configured": bool(os.getenv("OPENAI_API_KEY")),
                 "model": "gpt-4o-mini"
             },
-            "brave_search": {
-                "configured": bool(os.getenv("BRAVE_SEARCH_API_KEY")),
-                "endpoint": "https://api.search.brave.com/res/v1/web/search"
-            },
-            "apify_scraping": {
-                "configured": bool(os.getenv("APIFY_API_KEY")),
-                "endpoint": "https://api.apify.com/v2"
+            "naver_shopping": {
+                "configured": bool(os.getenv("NAVER_CLIENT_ID") and os.getenv("NAVER_CLIENT_SECRET")),
+                "endpoint": "https://openapi.naver.com/v1/search/shop.json"
             }
         },
         "features": {
             "ai_recommendations": True,
-            "mcp_pipeline": True,
+            "naver_integration": True,
             "product_search": True,
-            "detail_scraping": True
+            "real_products": True
         }
     }
