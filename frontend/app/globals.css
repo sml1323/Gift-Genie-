@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 94.1%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* Gift Genie Modern Theme Components */
+  
+  /* Clean minimal background */
+  .modern-bg {
+    @apply bg-trend-white;
+  }
+  
+  .modern-bg-accent {
+    @apply bg-trend-gray-50;
+  }
+  
+  /* Modern card styles */
+  .modern-card {
+    @apply bg-trend-white rounded-modern shadow-sm border border-trend-gray-200 p-6;
+    @apply hover:shadow-md transition-all duration-200 ease-out;
+  }
+  
+  .modern-card-elevated {
+    @apply modern-card shadow-lg hover:shadow-xl;
+  }
+  
+  /* Modern button styles */
+  .modern-button {
+    @apply font-body font-medium px-8 py-4 rounded-modern transition-all duration-200 ease-out;
+    @apply transform hover:scale-105 active:scale-95;
+  }
+  
+  .modern-button-primary {
+    @apply modern-button bg-trend-white text-trend-black border-2 border-trend-gray-300;
+    @apply hover:bg-trend-orange-500 hover:text-trend-white hover:border-trend-orange-500;
+    @apply shadow-sm hover:shadow-lg;
+  }
+  
+  .modern-button-cta {
+    @apply modern-button bg-trend-black text-trend-white;
+    @apply hover:bg-trend-orange-500 hover:scale-110;
+    @apply shadow-lg hover:shadow-2xl;
+  }
+  
+  /* Modern input styles */
+  .modern-input {
+    @apply w-full px-4 py-3 bg-trend-white border border-trend-gray-300;
+    @apply rounded-modern font-body placeholder-trend-gray-500;
+    @apply focus:border-trend-orange-500 focus:ring-2 focus:ring-trend-orange-200;
+    @apply transition-all duration-200 ease-out;
+    @apply hover:border-trend-gray-400;
+  }
+  
+  /* Modern progress bar */
+  .modern-progress-bar {
+    @apply h-3 bg-trend-gray-200 rounded-modern overflow-hidden;
+  }
+  
+  .modern-progress-bar-fill {
+    @apply h-full rounded-modern transition-all duration-500 ease-out;
+    @apply bg-trend-orange-500;
+  }
+  
+  /* Modern icon animations */
+  .modern-icon {
+    @apply inline-block transform transition-transform duration-200;
+  }
+  
+  .modern-icon:hover {
+    @apply scale-110;
+  }
+  
+  /* Modern typography */
+  .modern-display {
+    @apply font-display text-display text-trend-black font-black leading-none;
+  }
+  
+  .modern-display-lg {
+    @apply font-display text-display-lg text-trend-black font-black leading-none;
+  }
+  
+  .modern-title {
+    @apply font-body text-3xl text-trend-black font-bold;
+  }
+  
+  .modern-subtitle {
+    @apply font-body text-lg text-trend-gray-600 font-normal;
+  }
+  
+  /* Modern shadow effects */
+  .modern-shadow {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  }
+  
+  .modern-shadow-lg {
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.12);
+  }
+}
+
+@layer utilities {
+  /* Modern animations */
+  @keyframes slide-up {
+    0% { transform: translateY(20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  
+  .animate-slide-up {
+    animation: slide-up 0.6s ease-out;
+  }
+}

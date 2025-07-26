@@ -25,15 +25,17 @@
 
 ## 🛠️ 개발 컨텍스트
 
-### 현재 상태 (Week 0 완료)
+### 현재 상태 (Week 2 완료)
 - ✅ 프로젝트 구조 설계 완료
 - ✅ 개발 계획 수립 완료  
-- ⏳ Week 1 (기초 설정) 대기 중
+- ✅ Week 1 Backend 설정 (25%) 완료
+- ✅ Week 2 FastAPI 백엔드 (100%) 완료
+- ⏳ Week 3 (프론트엔드) 진행 예정
 
 ### 다음 작업 우선순위
 1. **Frontend 초기화**: Next.js 14 + Tailwind + Shadcn/ui 설정
-2. **Backend 초기화**: FastAPI + PostgreSQL 연결
-3. **Monorepo 설정**: 워크스페이스 및 공통 도구 설정
+2. **Frontend API 연동**: 백엔드 엔드포인트와 연결
+3. **UI 컴포넌트**: 5단계 입력 폼 및 결과 카드 구현
 
 ## 🔧 개발 환경 설정
 
@@ -66,9 +68,15 @@
 
 ### 개발 시작
 ```bash
-cd /Users/imseungmin/work/new_project
+cd /home/eslway/work/Gift-Genie-
 # task.md 확인 → 현재 주차 작업 파악
 # implementation-plan.md 참조 → 기술 구현 방법
+
+# FastAPI 백엔드 실행 (포트 8000)
+cd backend && python main.py
+
+# 프론트엔드 개발 서버 (포트 3000) - 구현 예정
+cd frontend && npm run dev
 ```
 
 ### 진행상황 업데이트
@@ -106,7 +114,7 @@ cd /Users/imseungmin/work/new_project
 
 **계속 작업 시**:
 ```
-"CLAUDE.md, task.md, implementation-plan.md를 읽고 Week 1 작업을 계속해줘"
+"CLAUDE.md, task.md, implementation-plan.md를 읽고 Week 3 프론트엔드 작업을 시작해줘"
 ```
 
 **문제 해결 시**:
@@ -135,6 +143,32 @@ cd /Users/imseungmin/work/new_project
 - implementation-plan의 "성능 최적화" 섹션 참조
 - 목표: API 응답 10초, 번들 크기 최적화
 
+## 🎯 현재 구현 상태
+
+### ✅ 완료된 기능
+- **FastAPI 백엔드**: 완전한 API 서버 구현
+  - `POST /api/v1/recommendations/enhanced` - MCP 파이프라인
+  - `POST /api/v1/recommendations/basic` - AI 전용 추천
+  - `GET /api/v1/health` - 헬스체크
+- **AI 추천 엔진**: GPT-4o-mini 기반 추천 생성
+- **MCP 통합**: Brave Search + Apify 스크래핑
+- **시뮬레이션 모드**: API 키 없이도 완전 동작
+
+### 🔄 다음 구현 필요
+- **Next.js 프론트엔드**: 완전한 UI/UX 구현
+- **API 연동**: Frontend ↔ Backend 연결
+- **5단계 입력 폼**: 사용자 입력 인터페이스
+- **추천 결과 카드**: 결과 표시 컴포넌트
+
+### 🚀 테스트 방법
+```bash
+# 백엔드 테스트
+cd backend && python test_api.py
+
+# API 문서 확인
+open http://localhost:8000/docs
+```
+
 ---
 
-*Claude가 이 프로젝트를 효율적으로 지원하기 위한 가이드 v1.0*
+*Claude가 이 프로젝트를 효율적으로 지원하기 위한 가이드 v1.1*
