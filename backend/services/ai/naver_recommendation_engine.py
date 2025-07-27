@@ -401,49 +401,98 @@ class NaverGiftRecommendationEngine:
     
     async def _integrate_recommendations(self, ai_recommendations: List, naver_products: List[NaverProductResult], request) -> List:
         """AI 추천과 네이버쇼핑 상품 통합"""
+        logger.info(f"🔄 Integration starting - AI recs: {len(ai_recommendations)}, Naver products: {len(naver_products)}")
+        
         if not naver_products:
+            logger.warning("No Naver products available, returning original AI recommendations")
             return ai_recommendations
+        
+        if not ai_recommendations:
+            logger.warning("No AI recommendations available, creating recommendations from Naver products")
+            # AI 추천이 없으면 네이버 상품으로 직접 추천 생성
+            return await self._create_recommendations_from_products(naver_products, request)
         
         enhanced_recommendations = []
         
-        # AI 추천 각각에 대해 가장 적합한 네이버쇼핑 상품 매칭
+        # 예산을 KRW로 통일 (request가 KRW인 경우)
+        budget_min_krw = request.budget_min
+        budget_max_krw = request.budget_max
+        if request.currency == "USD":
+            budget_min_krw = request.budget_min * USD_TO_KRW_RATE
+            budget_max_krw = request.budget_max * USD_TO_KRW_RATE
+        
+        logger.info(f"Budget range: ₩{budget_min_krw:,} - ₩{budget_max_krw:,}")
+        
+        # 예산 범위에 맞는 상품들 필터링 (더 넓은 범위로)
+        budget_products = []
+        for p in naver_products:
+            # 예산 범위를 크게 확장하여 더 많은 매칭 기회 제공
+            if budget_min_krw * 0.1 <= p.lprice <= budget_max_krw * 3.0:
+                budget_products.append(p)
+        
+        logger.info(f"Found {len(budget_products)} products within extended budget range")
+        
+        # AI 추천과 네이버 상품 매칭
         for i, ai_rec in enumerate(ai_recommendations[:3]):
-            
-            # 가격 범위에 맞는 상품 필터링 (USD로 변환하여 비교)
-            budget_products = []
-            for p in naver_products:
-                price_usd = p.lprice // USD_TO_KRW_RATE
-                # 예산 범위를 약간 넓혀서 더 많은 상품 매칭
-                if (request.budget_min * 0.8) <= price_usd <= (request.budget_max * 1.2):
-                    budget_products.append(p)
+            logger.info(f"Processing AI recommendation {i+1}: {ai_rec.title}")
             
             if budget_products and i < len(budget_products):
-                product = budget_products[i]
-                
-                # USD 가격으로 변환
-                price_usd = product.lprice // USD_TO_KRW_RATE
+                # 단순히 순서대로 매칭
+                product = budget_products[i % len(budget_products)]
                 
                 # GiftRecommendation 객체 생성 (기존 모델과 호환)
                 from models.response.recommendation import GiftRecommendation
                 
                 enhanced_rec = GiftRecommendation(
                     title=f"{ai_rec.title}",
-                    description=f"{ai_rec.description}\n\n💰 최저가: {product.lprice:,}원 (≈${price_usd}) - {product.mallName}\n🏷️ 브랜드: {product.brand or '기타'}",
+                    description=f"{ai_rec.description}\n\n💰 실제 상품: {product.lprice:,}원 - {product.mallName}\n🏷️ 브랜드: {product.brand or '기타'}",
                     category=ai_rec.category,
                     estimated_price=product.lprice,
                     currency="KRW",
                     price_display=f"₩{product.lprice:,}",
-                    reasoning=f"{ai_rec.reasoning}\n\n✅ 네이버쇼핑에서 실제 구매 가능한 상품을 찾았습니다. 가격 비교를 통해 최저가로 추천드립니다.",
+                    reasoning=f"{ai_rec.reasoning}\n\n✅ 네이버쇼핑에서 실제 구매 가능한 상품을 매칭했습니다.",
                     purchase_link=product.link,
                     image_url=product.image,
-                    confidence_score=min(ai_rec.confidence_score + 0.15, 1.0)
+                    confidence_score=min(ai_rec.confidence_score + 0.1, 1.0)
                 )
                 enhanced_recommendations.append(enhanced_rec)
+                logger.info(f"✅ Matched with product: {product.title[:50]}...")
             else:
-                # 적합한 상품이 없으면 원래 AI 추천 유지
-                enhanced_recommendations.append(ai_rec)
+                # 상품이 없으면 AI 추천을 그대로 사용하되 KRW로 변환
+                ai_rec_krw = ai_rec
+                if ai_rec.currency != "KRW":
+                    # AI 추천 가격을 KRW로 변환
+                    ai_rec_krw.estimated_price = int(ai_rec.estimated_price * USD_TO_KRW_RATE) if ai_rec.estimated_price else budget_max_krw // 2
+                    ai_rec_krw.currency = "KRW"
+                    ai_rec_krw.price_display = f"₩{ai_rec_krw.estimated_price:,}"
+                
+                enhanced_recommendations.append(ai_rec_krw)
+                logger.info(f"✅ Using original AI recommendation with KRW conversion")
         
+        logger.info(f"🎯 Integration completed - Final recommendations: {len(enhanced_recommendations)}")
         return enhanced_recommendations
+    
+    async def _create_recommendations_from_products(self, naver_products: List[NaverProductResult], request) -> List:
+        """네이버 상품에서 직접 추천 생성 (AI 추천이 없을 때)"""
+        from models.response.recommendation import GiftRecommendation
+        
+        recommendations = []
+        for i, product in enumerate(naver_products[:3]):
+            rec = GiftRecommendation(
+                title=f"추천 상품 #{i+1}: {product.title[:30]}...",
+                description=f"네이버쇼핑에서 찾은 '{request.occasion}' 선물 추천 상품입니다.",
+                category=product.category3 or "일반 상품",
+                estimated_price=product.lprice,
+                currency="KRW",
+                price_display=f"₩{product.lprice:,}",
+                reasoning=f"사용자의 관심사 '{', '.join(request.interests[:2])}'에 적합한 상품입니다.",
+                purchase_link=product.link,
+                image_url=product.image,
+                confidence_score=0.7 + (i * 0.05)
+            )
+            recommendations.append(rec)
+        
+        return recommendations
     
     def _convert_naver_to_search_results(self, naver_products: List[NaverProductResult]) -> List:
         """네이버 상품을 ProductSearchResult로 변환"""
