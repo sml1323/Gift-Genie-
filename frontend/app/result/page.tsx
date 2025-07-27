@@ -134,7 +134,7 @@ export default function ResultPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
                         <div className="text-2xl font-bold text-trend-orange-600">
-                          ${gift.estimated_price}
+                          ₩{gift.estimated_price?.toLocaleString() || '가격 정보 없음'}
                         </div>
                         <div className="flex items-center space-x-1">
                           {[...Array(5)].map((_, i) => (
@@ -195,7 +195,7 @@ export default function ResultPage() {
                           <span className="text-trend-gray-500">{result.domain}</span>
                           <div className="flex items-center space-x-2">
                             {result.price && (
-                              <span className="font-medium text-trend-orange-600">${result.price}</span>
+                              <span className="font-medium text-trend-orange-600">₩{result.price.toLocaleString()}</span>
                             )}
                             {result.rating && (
                               <div className="flex items-center space-x-1">

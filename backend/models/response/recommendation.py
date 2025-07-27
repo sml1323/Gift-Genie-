@@ -3,7 +3,7 @@ Gift Genie - Response Models
 Pydantic models for API responses
 """
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -13,7 +13,9 @@ class GiftRecommendation(BaseModel):
     title: str = Field(..., description="Gift title/name")
     description: str = Field(..., description="Detailed description of the gift")
     category: str = Field(..., description="Gift category")
-    estimated_price: int = Field(..., ge=0, description="Estimated price in USD")
+    estimated_price: int = Field(..., ge=0, description="Estimated price amount")
+    currency: Literal["USD", "KRW"] = Field(default="KRW", description="Price currency")
+    price_display: str = Field(..., description="Formatted price for display (e.g., '₩65,000' or '$50')")
     reasoning: str = Field(..., description="AI reasoning for this recommendation")
     purchase_link: Optional[str] = Field(None, description="Direct purchase link")
     image_url: Optional[str] = Field(None, description="Product image URL")
@@ -25,7 +27,9 @@ class GiftRecommendation(BaseModel):
                 "title": "독서 애호가를 위한 프리미엄 선물",
                 "description": "28세 여성에게 완벽한 생일 선물입니다. 고품질 소재와 세련된 디자인으로 특별함을 선사합니다.",
                 "category": "프리미엄 선물",
-                "estimated_price": 140,
+                "estimated_price": 182000,
+                "currency": "KRW",
+                "price_display": "₩182,000",
                 "reasoning": "받는 분의 관심사(독서, 커피)를 고려하여 선별한 고품질 제품입니다.",
                 "purchase_link": "https://amazon.com/dp/example1",
                 "image_url": "https://source.unsplash.com/400x400/?reading,product",
@@ -40,7 +44,9 @@ class ProductSearchResult(BaseModel):
     url: str = Field(..., description="Product URL")
     description: str = Field(..., description="Product description")
     domain: str = Field(..., description="E-commerce domain")
-    price: Optional[int] = Field(None, ge=0, description="Product price in USD")
+    price: Optional[int] = Field(None, ge=0, description="Product price amount")
+    currency: Optional[Literal["USD", "KRW"]] = Field(default="KRW", description="Price currency")
+    price_display: Optional[str] = Field(None, description="Formatted price for display")
     image_url: Optional[str] = Field(None, description="Product image URL")
     rating: Optional[float] = Field(None, ge=0.0, le=5.0, description="Product rating (0-5)")
     review_count: Optional[int] = Field(None, ge=0, description="Number of reviews")
@@ -52,7 +58,9 @@ class ProductSearchResult(BaseModel):
                 "url": "https://amazon.com/dp/example1",
                 "description": "Perfect coffee gift with premium quality and elegant design.",
                 "domain": "amazon.com",
-                "price": 85,
+                "price": 110500,
+                "currency": "KRW",
+                "price_display": "₩110,500",
                 "image_url": "https://source.unsplash.com/400x400/?coffee,product",
                 "rating": 4.1,
                 "review_count": 200

@@ -3,7 +3,7 @@ Gift Genie - Request Models
 Pydantic models for API request validation
 """
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, validator
 
 
@@ -12,8 +12,9 @@ class GiftRequest(BaseModel):
     recipient_age: int = Field(..., ge=1, le=120, description="Recipient's age")
     recipient_gender: str = Field(..., pattern="^(male|female|neutral|남성|여성|중성)$", description="Recipient's gender")
     relationship: str = Field(..., description="Relationship to recipient (friend, family, colleague, partner, etc.)")
-    budget_min: int = Field(..., ge=0, description="Minimum budget in USD")
-    budget_max: int = Field(..., ge=1, description="Maximum budget in USD")
+    budget_min: int = Field(..., ge=0, description="Minimum budget amount")
+    budget_max: int = Field(..., ge=1, description="Maximum budget amount")
+    currency: Literal["USD", "KRW"] = Field(default="KRW", description="Budget currency (USD or KRW)")
     interests: List[str] = Field(..., min_items=1, max_items=5, description="List of recipient's interests")
     occasion: str = Field(..., description="Occasion for the gift (birthday, christmas, anniversary, etc.)")
     personal_style: Optional[str] = Field(None, description="Personal style preference")
@@ -37,8 +38,9 @@ class GiftRequest(BaseModel):
                 "recipient_age": 28,
                 "recipient_gender": "여성",
                 "relationship": "친구",
-                "budget_min": 50,
-                "budget_max": 150,
+                "budget_min": 65000,
+                "budget_max": 195000,
+                "currency": "KRW",
                 "interests": ["독서", "커피", "여행", "사진"],
                 "occasion": "생일",
                 "personal_style": "미니멀리스트",

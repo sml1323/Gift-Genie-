@@ -7,6 +7,7 @@ export interface GiftRequest {
   relationship: string // 'friend', 'family', 'colleague', 'partner'
   budget_min: number
   budget_max: number
+  currency: 'USD' | 'KRW'
   interests: string[]
   occasion: string // 'birthday', 'christmas', 'anniversary', etc.
   personal_style?: string
@@ -18,6 +19,8 @@ export interface GiftRecommendation {
   description: string
   category: string
   estimated_price: number
+  currency?: 'USD' | 'KRW'
+  price_display?: string
   reasoning: string
   purchase_link?: string
   image_url?: string
@@ -77,7 +80,7 @@ export interface FormSteps {
   budget: {
     min: number
     max: number
-    currency: string
+    currency: 'USD' | 'KRW'
   }
   restrictions: {
     items: string[]

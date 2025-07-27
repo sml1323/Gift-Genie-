@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 
 from models.request.recommendation import GiftRequest
 from models.response.recommendation import GiftRecommendation, RecommendationResponse
+from utils.currency import enhance_price_with_currency, normalize_budget_to_usd
 
 logger = logging.getLogger(__name__)
 
@@ -191,12 +192,30 @@ class GiftRecommendationEngine:
     
     def _generate_mock_recommendations(self, request: GiftRequest) -> List[GiftRecommendation]:
         """시뮬레이션 모드용 가상 추천 생성"""
+        
+        # Normalize budget to USD for internal processing (legacy compatibility)
+        budget_min_usd, budget_max_usd = normalize_budget_to_usd(
+            request.budget_min, request.budget_max, request.currency
+        )
+        
+        # Calculate sample prices in USD
+        price_high = min(max(budget_max_usd - 10, budget_min_usd), budget_max_usd)
+        price_mid = min(max(budget_max_usd - 30, budget_min_usd), budget_max_usd)
+        price_low = min(max(budget_max_usd - 20, budget_min_usd), budget_max_usd)
+        
+        # Convert prices to target currency for display
+        price_high_enhanced = enhance_price_with_currency(price_high, request.currency)
+        price_mid_enhanced = enhance_price_with_currency(price_mid, request.currency)
+        price_low_enhanced = enhance_price_with_currency(price_low, request.currency)
+        
         mock_recommendations = [
             GiftRecommendation(
                 title=f"{request.interests[0] if request.interests else '특별한'} 선물 - 프리미엄",
                 description=f"{request.recipient_age}세 {request.recipient_gender}에게 완벽한 {request.occasion} 선물입니다. 고품질 소재와 세련된 디자인으로 특별함을 선사합니다.",
                 category="프리미엄 선물",
-                estimated_price=min(max(request.budget_max - 10, request.budget_min), request.budget_max),
+                estimated_price=price_high_enhanced["estimated_price"],
+                currency=price_high_enhanced["currency"],
+                price_display=price_high_enhanced["price_display"],
                 reasoning=f"받는 분의 관심사({', '.join(request.interests[:2]) if request.interests else '다양한 취미'})를 고려하여 선별한 고품질 제품입니다.",
                 confidence_score=0.85
             ),
@@ -204,7 +223,9 @@ class GiftRecommendationEngine:
                 title=f"{request.relationship}을 위한 베스트셀러 아이템",
                 description=f"많은 사람들이 선택한 인기 상품으로, {request.occasion}에 특히 의미있는 선물입니다. 실용성과 감성을 모두 만족시킵니다.",
                 category="인기 상품",
-                estimated_price=min(max(request.budget_max - 30, request.budget_min), request.budget_max),
+                estimated_price=price_mid_enhanced["estimated_price"],
+                currency=price_mid_enhanced["currency"],
+                price_display=price_mid_enhanced["price_display"],
                 reasoning=f"{request.relationship} 관계에서 가장 인기있는 선물 카테고리 중 하나로, 실패할 확률이 낮습니다.",
                 confidence_score=0.78
             ),
@@ -212,7 +233,9 @@ class GiftRecommendationEngine:
                 title="한정 에디션 선물세트",
                 description=f"특별한 {request.occasion}을 위한 한정판 선물세트입니다. 아름다운 포장과 함께 특별함을 더합니다.",
                 category="한정 상품",  
-                estimated_price=min(max(request.budget_max - 20, request.budget_min), request.budget_max),
+                estimated_price=price_low_enhanced["estimated_price"],
+                currency=price_low_enhanced["currency"],
+                price_display=price_low_enhanced["price_display"],
                 reasoning="한정 에디션 제품은 희소성과 특별함을 동시에 선사하여 기억에 남는 선물이 됩니다.",
                 confidence_score=0.82
             )

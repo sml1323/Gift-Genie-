@@ -257,20 +257,26 @@ class NaverGiftRecommendationEngine:
             # Stage 2: 네이버쇼핑 검색
             naver_products = []
             naver_time = 0
+            naver_start = time.time()
             
-            if ai_response.recommendations:
-                naver_start = time.time()
-                
-                # 검색 키워드 추출 (첫 번째 추천에서)
-                search_keywords = self._extract_search_keywords(ai_response.recommendations[0], request)
-                
-                # 가격 오름차순으로 검색하여 최저가 우선
-                naver_products = await self.naver_client.search_products(
-                    search_keywords, request.budget_max, display=10, sort="asc"
-                )
-                
-                naver_time = time.time() - naver_start
-                logger.info(f"Found {len(naver_products)} products in {naver_time:.2f}s")
+            # Extract keywords from user interests and occasion
+            search_keywords = request.interests[:2] if request.interests else ["선물"]
+            if request.occasion and request.occasion not in search_keywords:
+                search_keywords.append(request.occasion)
+            
+            logger.info(f"Searching with keywords: {search_keywords}, budget_max: {request.budget_max}")
+            
+            # Convert KRW budget to USD for naver client (which expects USD)
+            from utils.currency import convert_currency
+            budget_max_usd = convert_currency(request.budget_max, request.currency, "USD") if request.currency == "KRW" else request.budget_max
+            
+            # Always search for products (regardless of AI recommendations)
+            naver_products = await self.naver_client.search_products(
+                search_keywords, budget_max_usd, display=10, sort="asc"
+            )
+            
+            naver_time = time.time() - naver_start
+            logger.info(f"Found {len(naver_products)} products in {naver_time:.2f}s")
             
             # Stage 3: AI 추천과 네이버쇼핑 상품 통합
             integration_start = time.time()
@@ -319,6 +325,8 @@ class NaverGiftRecommendationEngine:
             
         except Exception as e:
             logger.error(f"Naver Shopping pipeline failed: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             total_time = (datetime.now() - start_time).total_seconds()
             
             from models.response.recommendation import (
@@ -422,7 +430,9 @@ class NaverGiftRecommendationEngine:
                     title=f"{ai_rec.title}",
                     description=f"{ai_rec.description}\n\n💰 최저가: {product.lprice:,}원 (≈${price_usd}) - {product.mallName}\n🏷️ 브랜드: {product.brand or '기타'}",
                     category=ai_rec.category,
-                    estimated_price=price_usd,
+                    estimated_price=product.lprice,
+                    currency="KRW",
+                    price_display=f"₩{product.lprice:,}",
                     reasoning=f"{ai_rec.reasoning}\n\n✅ 네이버쇼핑에서 실제 구매 가능한 상품을 찾았습니다. 가격 비교를 통해 최저가로 추천드립니다.",
                     purchase_link=product.link,
                     image_url=product.image,
@@ -438,17 +448,21 @@ class NaverGiftRecommendationEngine:
     def _convert_naver_to_search_results(self, naver_products: List[NaverProductResult]) -> List:
         """네이버 상품을 ProductSearchResult로 변환"""
         from models.response.recommendation import ProductSearchResult
+        from utils.currency import format_currency
         
         search_results = []
         for product in naver_products[:5]:
-            price_usd = product.lprice // USD_TO_KRW_RATE
+            # Keep price in KRW (no conversion needed for Korean products)
+            price_krw = product.lprice
             
             search_result = ProductSearchResult(
                 title=product.title,
                 url=product.link,
                 description=f"{product.brand} {product.category3}".strip(),
                 domain="shopping.naver.com",
-                price=price_usd,
+                price=price_krw,
+                currency="KRW",
+                price_display=format_currency(price_krw, "KRW"),
                 image_url=product.image,
                 rating=None,  # 네이버쇼핑 API에서 제공하지 않음
                 review_count=None

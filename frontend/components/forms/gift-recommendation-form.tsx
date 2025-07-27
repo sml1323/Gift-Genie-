@@ -15,8 +15,9 @@ export function GiftRecommendationForm() {
     recipient_age: 25,
     recipient_gender: '여성',
     relationship: '친구',
-    budget_min: 50,
-    budget_max: 150,
+    budget_min: 65000,
+    budget_max: 195000,
+    currency: 'KRW',
     interests: [],
     occasion: '생일',
     personal_style: '미니멀리스트',
@@ -61,6 +62,7 @@ export function GiftRecommendationForm() {
       relationship: formData.relationship!,
       budget_min: formData.budget_min!,
       budget_max: formData.budget_max!,
+      currency: formData.currency || 'KRW',
       interests: formData.interests!,
       occasion: formData.occasion!,
       personal_style: formData.personal_style,
@@ -356,20 +358,20 @@ export function GiftRecommendationForm() {
             <div className="text-center mb-8">
               <span className="text-4xl mb-4 block">💰</span>
               <h3 className="modern-title mb-2">예산은 어느 정도 생각하고 계신가요?</h3>
-              <p className="modern-subtitle">USD 기준으로 입력해주세요</p>
+              <p className="modern-subtitle">원화 기준으로 입력해주세요</p>
             </div>
             
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-trend-gray-700 mb-2">
-                  최소 예산: ${formData.budget_min || 0}
+                  최소 예산: ₩{(formData.budget_min || 0).toLocaleString()}
                 </label>
                 <input
                   type="range"
-                  min="10"
-                  max="500"
-                  step="10"
-                  value={formData.budget_min || 50}
+                  min="13000"
+                  max="650000"
+                  step="13000"
+                  value={formData.budget_min || 65000}
                   onChange={(e) => updateFormData({ budget_min: parseInt(e.target.value) })}
                   className="w-full"
                 />
@@ -377,14 +379,14 @@ export function GiftRecommendationForm() {
               
               <div>
                 <label className="block text-sm font-medium text-trend-gray-700 mb-2">
-                  최대 예산: ${formData.budget_max || 0}
+                  최대 예산: ₩{(formData.budget_max || 0).toLocaleString()}
                 </label>
                 <input
                   type="range"
-                  min={formData.budget_min || 50}
-                  max="1000"
-                  step="10"
-                  value={formData.budget_max || 150}
+                  min={formData.budget_min || 65000}
+                  max="1300000"
+                  step="13000"
+                  value={formData.budget_max || 195000}
                   onChange={(e) => updateFormData({ budget_max: parseInt(e.target.value) })}
                   className="w-full"
                 />
@@ -392,10 +394,10 @@ export function GiftRecommendationForm() {
               
               <div className="text-center p-4 bg-trend-gray-50 rounded-lg">
                 <div className="text-lg font-semibold text-trend-gray-800">
-                  ${formData.budget_min || 0} - ${formData.budget_max || 0}
+                  ₩{(formData.budget_min || 0).toLocaleString()} - ₩{(formData.budget_max || 0).toLocaleString()}
                 </div>
                 <div className="text-sm text-trend-gray-600 mt-1">
-                  대략 {((formData.budget_min || 0) * 1300).toLocaleString()}원 - {((formData.budget_max || 0) * 1300).toLocaleString()}원
+                  대략 ${Math.round((formData.budget_min || 0) / 1300)} - ${Math.round((formData.budget_max || 0) / 1300)} (참고용)
                 </div>
               </div>
             </div>
@@ -453,7 +455,7 @@ export function GiftRecommendationForm() {
                   <div>👤 {formData.recipient_age}세 {formData.recipient_gender} ({formData.relationship})</div>
                   <div>🎯 관심사: {formData.interests?.join(', ') || '없음'}</div>
                   <div>🎉 행사: {formData.occasion}</div>
-                  <div>💰 예산: ${formData.budget_min}-{formData.budget_max}</div>
+                  <div>💰 예산: ₩{(formData.budget_min || 0).toLocaleString()}-{(formData.budget_max || 0).toLocaleString()}</div>
                   <div>✨ 스타일: {formData.personal_style || '지정 안함'}</div>
                 </div>
               </div>
