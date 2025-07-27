@@ -111,6 +111,8 @@ class GiftRecommendationEngine:
 - description: 왜 완벽한지 설명하는 2-3문장 설명 (한글)
 - category: 주요 카테고리 (전자제품, 패션, 도서 등, 한글)
 - estimated_price: USD 가격 (정수)
+- currency: "USD" 또는 "KRW"
+- price_display: "$50" 또는 "₩65,000" 형식의 가격 표시
 - reasoning: 이 선물이 프로필에 맞는 이유 (한글)
 - confidence_score: 확신도 (0.0-1.0)
 
@@ -170,11 +172,17 @@ class GiftRecommendationEngine:
             recommendations = []
             for item in recommendations_data[:MAX_RECOMMENDATIONS]:
                 try:
+                    estimated_price = int(item.get('estimated_price', 0))
+                    currency = item.get('currency', 'USD')
+                    price_display = item.get('price_display', f"${estimated_price}" if currency == 'USD' else f"₩{estimated_price:,}")
+                    
                     recommendation = GiftRecommendation(
                         title=item.get('title', 'Unknown Gift'),
                         description=item.get('description', 'No description available'),
                         category=item.get('category', 'Other'),
-                        estimated_price=int(item.get('estimated_price', 0)),
+                        estimated_price=estimated_price,
+                        currency=currency,
+                        price_display=price_display,
                         reasoning=item.get('reasoning', 'No reasoning provided'),
                         confidence_score=float(item.get('confidence_score', 0.5))
                     )

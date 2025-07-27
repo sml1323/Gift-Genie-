@@ -62,18 +62,19 @@ class NaverShoppingClient:
         self.base_url = "https://openapi.naver.com/v1/search/shop.json"
         self.api_calls_count = 0
     
-    async def search_products(self, keywords: List[str], budget_max_usd: int, 
+    async def search_products(self, keywords: List[str], budget_min_usd: int, budget_max_usd: int, 
                             display: int = 10, sort: str = "asc") -> List[NaverProductResult]:
         """상품 검색 (USD 예산을 KRW로 변환)"""
+        budget_min_krw = budget_min_usd * USD_TO_KRW_RATE
         budget_max_krw = budget_max_usd * USD_TO_KRW_RATE
         
         if not self.enabled:
-            return await self._simulate_search(keywords, budget_max_krw, display)
+            return await self._simulate_search(keywords, budget_min_krw, budget_max_krw, display)
         
         try:
             # Build search query
             query = " ".join(keywords[:3])  # 최대 3개 키워드 조합
-            logger.info(f"Searching Naver Shopping: '{query}', budget_max: ${budget_max_usd} ({budget_max_krw:,}원)")
+            logger.info(f"Searching Naver Shopping: '{query}', budget: ${budget_min_usd}-${budget_max_usd} ({budget_min_krw:,}-{budget_max_krw:,}원)")
             
             headers = {
                 "X-Naver-Client-Id": self.client_id,
@@ -99,23 +100,23 @@ class NaverShoppingClient:
                     if response.status == 200:
                         data = await response.json()
                         logger.info(f"Naver API returned {len(data.get('items', []))} raw products")
-                        results = self._process_search_results(data, budget_max_krw)
+                        results = self._process_search_results(data, budget_min_krw, budget_max_krw)
                         logger.info(f"After filtering: {len(results)} products within budget")
                         return results
                     else:
                         logger.warning(f"Naver Shopping API error: {response.status}")
-                        return await self._simulate_search(keywords, budget_max_krw, display)
+                        return await self._simulate_search(keywords, budget_min_krw, budget_max_krw, display)
                         
         except Exception as e:
             logger.error(f"Naver Shopping API failed: {e}")
-            return await self._simulate_search(keywords, budget_max_krw, display)
+            return await self._simulate_search(keywords, budget_min_krw, budget_max_krw, display)
     
-    def _process_search_results(self, data: Dict[str, Any], budget_max_krw: int) -> List[NaverProductResult]:
+    def _process_search_results(self, data: Dict[str, Any], budget_min_krw: int, budget_max_krw: int) -> List[NaverProductResult]:
         """네이버쇼핑 검색 결과 처리"""
         results = []
         items = data.get("items", [])
         
-        logger.info(f"Budget filter: max {budget_max_krw:,}원")
+        logger.info(f"Budget filter: {budget_min_krw:,}원 - {budget_max_krw:,}원")
         
         if items:
             logger.info(f"Sample API response item: {items[0]}")
@@ -135,7 +136,8 @@ class NaverShoppingClient:
                     logger.warning(f"Invalid price format '{lprice_str}' for product '{item.get('title', 'Unknown')}'")
                     continue
                 
-                if lprice > budget_max_krw:
+                # 예산 범위 체크 (최소/최대 모두 확인)
+                if lprice < budget_min_krw or lprice > budget_max_krw:
                     filtered_count += 1
                     continue
                 
@@ -180,7 +182,7 @@ class NaverShoppingClient:
                 logger.warning(f"Skipping invalid product: {e}")
                 continue
         
-        logger.info(f"Filtering results: {filtered_count} products over budget, {len(results)} products within budget")
+        logger.info(f"Filtering results: {filtered_count} products outside budget range, {len(results)} products within budget")
         return results
     
     def _clean_html_tags(self, text: str) -> str:
@@ -189,7 +191,7 @@ class NaverShoppingClient:
         clean = re.compile('<.*?>')
         return re.sub(clean, '', text)
     
-    async def _simulate_search(self, keywords: List[str], budget_max_krw: int, display: int) -> List[NaverProductResult]:
+    async def _simulate_search(self, keywords: List[str], budget_min_krw: int, budget_max_krw: int, display: int) -> List[NaverProductResult]:
         """시뮬레이션 모드"""
         await asyncio.sleep(0.8)
         
@@ -197,8 +199,10 @@ class NaverShoppingClient:
         keyword = keywords[0] if keywords else "선물"
         
         sample_products = []
+        price_range = budget_max_krw - budget_min_krw
         for i in range(min(display, 5)):
-            price = min(budget_max_krw - (i * 10000), budget_max_krw - 5000)
+            # 예산 범위 내에서 다양한 가격 생성
+            price = budget_min_krw + (price_range * (i + 1) // (display + 1))
             
             sample_products.append(NaverProductResult(
                 title=f"{keyword} 추천 상품 #{i+1}",
@@ -268,11 +272,16 @@ class NaverGiftRecommendationEngine:
             
             # Convert KRW budget to USD for naver client (which expects USD)
             from utils.currency import convert_currency
-            budget_max_usd = convert_currency(request.budget_max, request.currency, "USD") if request.currency == "KRW" else request.budget_max
+            if request.currency == "KRW":
+                budget_min_usd = convert_currency(request.budget_min, request.currency, "USD")
+                budget_max_usd = convert_currency(request.budget_max, request.currency, "USD")
+            else:
+                budget_min_usd = request.budget_min
+                budget_max_usd = request.budget_max
             
             # Always search for products (regardless of AI recommendations)
             naver_products = await self.naver_client.search_products(
-                search_keywords, budget_max_usd, display=10, sort="asc"
+                search_keywords, budget_min_usd, budget_max_usd, display=10, sort="asc"
             )
             
             naver_time = time.time() - naver_start
@@ -423,14 +432,14 @@ class NaverGiftRecommendationEngine:
         
         logger.info(f"Budget range: ₩{budget_min_krw:,} - ₩{budget_max_krw:,}")
         
-        # 예산 범위에 맞는 상품들 필터링 (더 넓은 범위로)
+        # 예산 범위에 맞는 상품들 필터링 (확장된 범위로)
         budget_products = []
         for p in naver_products:
-            # 예산 범위를 크게 확장하여 더 많은 매칭 기회 제공
-            if budget_min_krw * 0.1 <= p.lprice <= budget_max_krw * 3.0:
+            # 예산 범위를 적절히 확장 (50% ~ 150% 범위로 더 유연하게)
+            if budget_min_krw * 0.5 <= p.lprice <= budget_max_krw * 1.5:
                 budget_products.append(p)
         
-        logger.info(f"Found {len(budget_products)} products within extended budget range")
+        logger.info(f"Found {len(budget_products)} products within expanded budget range (50%-150% of target)")
         
         # AI 추천과 네이버 상품 매칭
         for i, ai_rec in enumerate(ai_recommendations[:3]):
