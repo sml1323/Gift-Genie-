@@ -295,18 +295,53 @@ class NaverShoppingClient:
         return re.sub(clean, '', text)
     
     def _is_low_quality_product(self, title: str) -> bool:
-        """저품질/부적절한 상품 필터링"""
+        """저품질/부적절한 상품 필터링 (강화된 선물 적합성 검증)"""
         title_lower = title.lower()
         
         # 견적서, 주문제작, 문의 상품 제외
-        exclude_keywords = [
+        exclude_basic = [
             "견적서", "견적", "문의", "상담", "주문제작", "맞춤제작", "커스텀",
             "배송비", "추가비", "도선료", "제주", "택배비", "결제상품", 
             "참고용", "샘플", "테스트", "더미", "예시"
         ]
         
-        for keyword in exclude_keywords:
+        # 선물 부적합 카테고리 (대폭 확장)
+        exclude_gift_inappropriate = [
+            # 여행/숙박 관련 (선물로 부적합)
+            "펜션", "숙박", "호텔", "리조트", "글램핑", "캠핑장", "독채", "카라반",
+            "투어", "여행패키지", "항공권", "티켓", "입장권", "이용권", "체험권",
+            "프라이빗", "private", "요트", "유람선", "크루즈",
+            
+            # 구독/멤버십 서비스 (선물로 부적절)
+            "구독", "구독권", "멤버십", "회원권", "이용권", "북클럽", "book club",
+            "정기결제", "월정액", "연간이용", "subscription",
+            
+            # 반려동물 관련
+            "사료", "pet", "반려동물", "강아지", "고양이", "개", "펫", "동물용",
+            "h.i.t", "아르테미스", "artemis", "큰입자", "피부&알러지",
+            
+            # 부품/소모품 (선물 부적합)
+            "부품", "피드팁", "충전", "케이블", "드름기", "소모품", "교체용", "예비용",
+            "필터", "교환용", "리필", "refill", "부속품", "액세서리용",
+            
+            # 서비스/무형상품
+            "컨설팅", "상담서비스", "교육과정", "레슨", "강의", "수업",
+            "installation", "설치", "수리", "repair", "a/s", "점검",
+            
+            # 업무용/전문용품 (개인선물 부적합)
+            "업무용", "사무용", "공업용", "산업용", "전문가전용", "법인전용",
+            "대량구매", "도매", "wholesale", "bulk"
+        ]
+        
+        # 기본 제외 키워드 검사
+        for keyword in exclude_basic:
             if keyword in title_lower:
+                return True
+        
+        # 선물 부적합 카테고리 검사  
+        for keyword in exclude_gift_inappropriate:
+            if keyword in title_lower:
+                logger.info(f"품질 필터: '{title[:50]}...' - 선물 부적합 카테고리 ({keyword}) 제외")
                 return True
         
         # 제목이 너무 짧거나 의미없는 경우
@@ -315,6 +350,11 @@ class NaverShoppingClient:
             
         # 괄호 안에 문의사항이 있는 경우
         if "고객센터" in title or "문의바랍니다" in title:
+            return True
+        
+        # 가격 관련 키워드만 있는 상품 (더미 상품 가능성)
+        price_only_keywords = ["원", "payment", "결제", "추가금", "옵션비"]
+        if any(keyword in title_lower for keyword in price_only_keywords) and len(title.strip()) < 20:
             return True
             
         return False
@@ -918,48 +958,70 @@ class NaverGiftRecommendationEngine:
         }
 
     def _extract_search_keywords_from_ai_rec(self, ai_recommendation, request) -> List[str]:
-        """AI 추천에서 정확한 검색 키워드 추출 (상품명 기반)"""
+        """사용자 관심사 우선 검색 키워드 추출 (개선된 매칭 로직)"""
         keywords = []
         
-        # 1. AI 추천 제목에서 핵심 상품명 추출
-        title_words = ai_recommendation.title.replace(',', ' ').replace('(', ' ').replace(')', ' ').split()
-        
-        # 대폭 확장된 스마트 키워드 매핑 시스템 사용
-        product_keywords = self._get_enhanced_keyword_mapping()
-        
-        # 제목에서 매칭되는 상품 키워드 찾기
-        for word in title_words:
-            word_clean = word.lower().strip()
-            if word_clean in product_keywords:
-                keywords.extend(product_keywords[word_clean])
-                logger.info(f"Found product keyword '{word_clean}' -> {product_keywords[word_clean]}")
-            elif len(word_clean) >= 2 and word_clean not in ['및', '그리고', '또는', '위한']:
-                keywords.append(word_clean)
-        
-        # 2. 카테고리 기반 키워드 추가
-        if ai_recommendation.category:
-            category_keywords = {
-                "전자제품": ["전자기기", "디지털"],
-                "홈&리빙": ["생활용품", "인테리어"], 
-                "도서": ["책", "도서"],
-                "패션": ["패션", "액세서리"],
-                "식음료": ["식품", "음료"],
-                "프리미엄 선물": ["선물세트", "고급"]
+        # 1. 사용자 관심사 최우선 반영 (확장된 매핑)
+        if request.interests and len(request.interests) > 0:
+            primary_interest = request.interests[0]
+            
+            # 확장된 관심사 매핑 (네이버쇼핑 최적화)
+            interest_mapping = {
+                # 전자제품 관련
+                "블루투스": "블루투스",
+                "이어폰": "이어폰", 
+                "헤드폰": "헤드폰",
+                "스피커": "스피커",
+                "무선": "블루투스",
+                "오디오": "이어폰",
+                "전자기기": "전자제품",
+                "디지털": "디지털기기",
+                # 기존 매핑
+                "독서": "책", "커피": "커피", "여행": "여행용품", 
+                "사진": "카메라", "운동": "운동용품", "요리": "주방용품", 
+                "음악": "이어폰", "게임": "게임기"
             }
-            if ai_recommendation.category in category_keywords:
-                keywords.extend(category_keywords[ai_recommendation.category])
+            
+            # 우선 키워드 설정 (사용자 관심사 기반)
+            primary_keyword = interest_mapping.get(primary_interest, primary_interest)
+            keywords.append(primary_keyword)
+            
+            # 관련 키워드 추가 (블루투스 → 무선이어폰)
+            related_keywords = {
+                "블루투스": ["무선이어폰", "이어폰"],
+                "이어폰": ["블루투스", "헤드폰"], 
+                "커피": ["커피메이커", "원두"],
+                "게임": ["게임기", "콘솔"]
+            }
+            
+            if primary_keyword in related_keywords:
+                keywords.extend(related_keywords[primary_keyword][:1])  # 관련 키워드 1개만 추가
         
-        # 3. 중복 제거 및 우선순위 정렬
+        # 2. AI 추천에서 보완 키워드 추출 (사용자 관심사와 연관된 경우만)
+        title_clean = ai_recommendation.title.replace(',', ' ').replace('(', ' ').replace(')', ' ')
+        title_words = [word.strip() for word in title_clean.split() if len(word.strip()) >= 2]
+        
+        # 전자제품 관련 키워드만 AI 추천에서 보완 추출
+        if request.interests and any(interest in ["블루투스", "이어폰", "헤드폰", "스피커", "오디오", "무선"] for interest in request.interests):
+            tech_keywords = ["이어폰", "헤드폰", "스피커", "블루투스", "무선", "오디오"]
+            for word in title_words:
+                if any(tech_word in word for tech_word in tech_keywords) and word not in keywords:
+                    keywords.append(word)
+                    break  # 하나만 추가
+        
+        # 3. 불용어 및 관련 없는 키워드 제거
+        stop_words = {'위한', '당신을', '완벽한', '특별한', '고급', '프리미엄', '추천', '선물', '세트', 
+                     '프라이빗', '북클럽', '구독권', '펜션', '숙박', '여행지', '투어'}
+        keywords = [kw for kw in keywords if kw not in stop_words]
+        
+        # 4. 최종 키워드 정리 (최대 2개로 제한하여 검색 정확도 향상)
         unique_keywords = []
-        seen = set()
         for keyword in keywords:
-            if keyword not in seen and keyword:
+            if keyword and keyword not in unique_keywords:
                 unique_keywords.append(keyword)
-                seen.add(keyword)
         
-        # 최대 4개 키워드 반환
-        final_keywords = unique_keywords[:4] if unique_keywords else ["선물"]
-        logger.info(f"🔍 AI 추천 '{ai_recommendation.title}' -> 최종 검색 키워드: {final_keywords}")
+        final_keywords = unique_keywords[:2] if unique_keywords else [request.interests[0] if request.interests else "선물"]
+        logger.info(f"🔍 AI 추천 '{ai_recommendation.title}' -> 사용자 관심사 우선 키워드: {final_keywords}")
         return final_keywords
     
     async def _smart_integrate_recommendations(self, ai_recommendations: List, naver_products: List[NaverProductResult], request) -> List:
@@ -1019,19 +1081,28 @@ class NaverGiftRecommendationEngine:
                     
                     logger.info(f"✅ GPT validated match: '{ai_rec.title}' with '{validated_product.title[:50]}...' (₩{validated_product.lprice:,}) - Product ID: {validated_product.productId}")
                 else:
-                    # GPT가 적합한 제품을 찾지 못한 경우
-                    logger.warning(f"❌ GPT validation failed for '{ai_rec.title}' - no suitable products found")
-                    # AI 추천을 그대로 사용 (KRW 변환)
-                    ai_rec_krw = self._convert_ai_rec_to_krw(ai_rec, budget_max_krw)
-                    enhanced_recommendations.append(ai_rec_krw)
+                    # GPT가 적합한 제품을 찾지 못한 경우 - 해당 추천을 완전히 제외
+                    logger.warning(f"❌ GPT validation failed for '{ai_rec.title}' - 관련성 없는 상품으로 판단하여 추천에서 제외")
+                    # AI 추천을 그대로 사용하지 않고 완전히 제외
                 
             else:
-                # 매칭되는 상품이 없으면 AI 추천을 그대로 사용 (KRW 변환)
-                ai_rec_krw = self._convert_ai_rec_to_krw(ai_rec, budget_max_krw)
-                enhanced_recommendations.append(ai_rec_krw)
-                logger.info(f"⚠️ No matching product found for '{ai_rec.title}', using original AI recommendation")
+                # 매칭되는 상품이 없으면 해당 AI 추천도 제외 (더미 추천 방지)
+                logger.warning(f"⚠️ No matching product found for '{ai_rec.title}' - 관련 상품이 없어 추천에서 제외")
         
-        logger.info(f"🎯 Smart Integration completed - Final recommendations: {len(enhanced_recommendations)}")
+        # 품질 보장 체크: 추천이 너무 적으면 고품질 AI 추천으로 보완
+        if len(enhanced_recommendations) < 2:
+            logger.warning(f"⚠️ 고품질 상품 매칭 부족 ({len(enhanced_recommendations)}개) - AI 추천으로 보완")
+            
+            # 남은 자리를 사용자 관심사 기반 고품질 AI 추천으로 채움
+            remaining_slots = min(2, 3 - len(enhanced_recommendations))
+            for i in range(remaining_slots):
+                if request.interests and len(request.interests) > i:
+                    interest = request.interests[i]
+                    fallback_rec = self._create_high_quality_fallback_recommendation(interest, request, budget_max_krw)
+                    enhanced_recommendations.append(fallback_rec)
+                    logger.info(f"✅ 고품질 AI 추천 보완: '{fallback_rec.title}' (관심사: {interest})")
+        
+        logger.info(f"🎯 Smart Integration completed - Final recommendations: {len(enhanced_recommendations)} (품질 보장)")
         return enhanced_recommendations
     
     async def _gpt_validate_and_select_product(self, ai_rec, naver_products: List[NaverProductResult], budget_max_krw: int) -> Optional[NaverProductResult]:
@@ -1106,21 +1177,28 @@ AI가 추천한 선물:
             
             validation_prompt += f"""
 
-**선별 기준 (우선순위 순):**
-1. **연관성**: AI 추천과의 매칭도 (가장 중요)
-2. **품질 점수**: 브랜드, 쇼핑몰, 상품명 품질 종합 평가
-3. **가격 적정성**: 예산 범위 내 적정 가격
-4. **신뢰도**: 브랜드와 쇼핑몰의 신뢰성
+**엄격한 선별 기준 (우선순위 순):**
+1. **연관성 검증**: AI 추천과 실제 의미적 연관성이 있는가? (핵심 판단 기준)
+2. **카테고리 일치**: 전자제품 추천에 의류가 나오는 등 완전히 다른 카테고리는 제외
+3. **용도 적합성**: 추천 의도와 실제 상품의 용도가 일치하는가?
+4. **품질 점수**: 브랜드, 쇼핑몰, 상품명 품질
+
+**연관성 판단 예시:**
+- AI: "무선 이어폰", 상품: "블루투스 헤드폰" → 연관성 높음 (O)
+- AI: "아로마 디퓨저", 상품: "향초 세트" → 연관성 보통 (O)
+- AI: "커피 메이커", 상품: "남성용 셔츠" → 연관성 없음 (X)
+- AI: "독서 램프", 상품: "반려동물 사료" → 연관성 없음 (X)
 
 **요청사항:**
-1. 위 기준을 종합적으로 고려하여 가장 적합한 상품을 선택하세요.
-2. 연관성이 너무 낮은 상품(예: 커피 추천 → 책 상품)은 품질이 높아도 제외하세요.
-3. 품질점수가 0.3 미만인 상품은 가급적 피하세요.
-4. 예산을 크게 초과하는 상품도 제외하세요.
-5. 모든 조건을 만족하는 상품이 없다면 "NONE"을 반환하세요.
+1. 연관성이 **높음** 또는 **보통** 수준인 상품만 선택
+2. 연관성이 **없는** 상품들만 있다면 "NONE"을 반환
+3. 가격만 맞다고 해서 관련 없는 상품을 선택하지 마세요
+4. 엄격한 품질 기준을 적용하여 사용자에게 실제 도움이 되는 상품만 선별
 
-**반환 형식:** 선택한 상품의 인덱스 번호만 반환 (0, 1, 2, 3, 4 중 하나) 또는 "NONE"
-**예시:** 2
+**반환 형식:**
+- 적합한 상품이 있으면: 인덱스 번호 (0, 1, 2, 3, 4)
+- 모든 상품이 연관성 없으면: "NONE"
+**예시:** 2 또는 NONE
 **반환:**
 """
             
@@ -1150,9 +1228,10 @@ AI가 추천한 선물:
             # 디버그: GPT 검증 과정 로깅
             self._log_gpt_validation_process(ai_rec, products_info, result)
             
-            # Parse GPT response
+            # Parse GPT response - 엄격한 검증 적용
             if result.upper() == "NONE":
-                logger.info(f"❌ GPT found no suitable products for '{ai_rec.title}' - 매칭되는 상품이 없습니다")
+                logger.info(f"✅ GPT 엄격 검증: '{ai_rec.title}'에 적합한 상품이 없다고 판단됨 - 추천에서 완전 제외")
+                # GPT가 적합하지 않다고 판단한 경우 완전히 제외 (fallback 없음)
                 return None
             
             try:
@@ -1353,6 +1432,52 @@ AI가 추천한 선물:
         
         return search_results
     
+    def _create_high_quality_fallback_recommendation(self, interest: str, request, budget_max_krw: int):
+        """관심사 기반 고품질 fallback 추천 생성"""
+        from models.response.recommendation import GiftRecommendation
+        
+        # 관심사별 고품질 추천 템플릿
+        quality_templates = {
+            "블루투스": {
+                "title": "프리미엄 블루투스 이어폰",
+                "description": "최신 블루투스 5.0 기술과 노이즈 캔슬링 기능을 갖춘 고품질 무선 이어폰입니다. 편안한 착용감과 뛰어난 음질로 일상의 음악 감상을 한층 업그레이드해드립니다.",
+                "category": "전자제품"
+            },
+            "이어폰": {
+                "title": "고음질 무선 이어폰",
+                "description": "프리미엄 드라이버와 첨단 음향 기술이 적용된 무선 이어폰으로, 깊이 있는 베이스와 클리어한 고음을 제공합니다.",
+                "category": "전자제품"
+            },
+            "커피": {
+                "title": "원두 드립 커피 세트",
+                "description": "엄선된 원두와 전문 드립 도구로 구성된 프리미엄 커피 세트입니다. 집에서도 카페 수준의 커피를 즐길 수 있습니다.",
+                "category": "식품/음료"
+            }
+        }
+        
+        # 관심사에 맞는 템플릿 선택 또는 기본 템플릿
+        template = quality_templates.get(interest, {
+            "title": f"{interest} 프리미엄 선물",
+            "description": f"{interest}에 관심이 있는 분을 위한 고품질 선별 상품입니다. 실용성과 품질을 모두 갖춘 의미있는 선물입니다.",
+            "category": "선물용품"
+        })
+        
+        # 예산 범위 내 합리적 가격 설정
+        estimated_price = min(budget_max_krw // 2, 150000)  # 최대 예산의 절반 또는 15만원 중 낮은 값
+        
+        return GiftRecommendation(
+            title=template["title"],
+            description=template["description"],
+            category=template["category"],
+            estimated_price=estimated_price,
+            currency="KRW",
+            price_display=f"₩{estimated_price:,}",
+            reasoning=f"사용자의 '{interest}' 관심사에 기반한 엄선된 추천으로, 실제 쇼핑몰에서 유사한 고품질 상품을 찾을 수 있습니다.",
+            purchase_link=None,
+            image_url=None,
+            confidence_score=0.75  # 보완 추천이므로 보통 신뢰도
+        )
+    
     async def _create_fallback_ai_recommendations(self, request):
         """OpenAI API 사용 불가 시 관심사 기반 대체 추천 생성"""
         from models.response.recommendation import GiftRecommendation
@@ -1366,8 +1491,31 @@ AI가 추천한 선물:
         
         mock_response = MockAIResponse()
         
-        # Interest-based recommendation templates with diverse categories
+        # Interest-based recommendation templates with diverse categories (확장된 매칭)
         interest_templates = {
+            # 전자제품 관련 키워드들
+            "블루투스": [
+                {
+                    "title": "프리미엄 블루투스 이어폰",
+                    "description": "최신 블루투스 5.0 기술이 적용된 고음질 무선 이어폰으로, 뛰어난 음질과 편리함을 제공합니다.",
+                    "category": "전자제품",
+                    "reasoning": "블루투스 기기에 관심이 있는 분에게는 일상에서 편리하게 사용할 수 있는 실용적인 선물입니다."
+                },
+                {
+                    "title": "블루투스 스피커",
+                    "description": "휴대용 고음질 블루투스 스피커로 언제 어디서나 좋은 음악을 즐길 수 있습니다.",
+                    "category": "전자제품",
+                    "reasoning": "블루투스 기기를 선호하는 분에게 음악 감상의 즐거움을 선사하는 특별한 선물입니다."
+                }
+            ],
+            "이어폰": [
+                {
+                    "title": "고음질 무선 이어폰",
+                    "description": "뛰어난 음질과 노이즈 캔슬링 기능을 갖춘 프리미엄 무선 이어폰입니다.",
+                    "category": "전자제품",
+                    "reasoning": "이어폰에 관심이 있는 분에게는 더욱 몰입감 있는 음악 감상 경험을 선사합니다."
+                }
+            ],
             "커피": {
                 "title": "프리미엄 커피 메이커",
                 "description": "집에서도 카페 수준의 커피를 즐길 수 있는 고품질 커피 메이커입니다. 다양한 추출 방식을 지원하여 취향에 맞는 완벽한 커피를 만들 수 있습니다.",
@@ -1419,7 +1567,24 @@ AI가 추천한 선물:
         
         # Generate recommendations based on user interests with diversity
         for i, interest in enumerate(request.interests[:3]):
+            # 직접 매칭 시도
             templates = interest_templates.get(interest)
+            
+            # 직접 매칭이 안되면 부분 매칭 시도 (키워드 포함 검색)
+            if not templates:
+                interest_lower = interest.lower()
+                for template_key, template_value in interest_templates.items():
+                    # 키워드가 관심사에 포함되거나 그 반대인 경우
+                    if (template_key.lower() in interest_lower or 
+                        interest_lower in template_key.lower() or
+                        any(keyword in interest_lower for keyword in [
+                            "무선", "블루투스", "이어폰", "헤드폰", "스피커", "오디오", 
+                            "전자", "기기", "디지털"
+                        ]) and template_key in ["블루투스", "이어폰"]):
+                        templates = template_value
+                        logger.info(f"🔍 관심사 '{interest}' → 키워드 매칭 '{template_key}' 발견")
+                        break
+            
             if not templates:
                 # Generic fallback for unknown interests
                 template = {

@@ -92,9 +92,9 @@ class GiftRecommendationEngine:
         if request.personal_style:
             style_text = f"\nPersonal style preference: {request.personal_style}"
         
-        prompt = f"""당신은 개인화된 추천을 전문으로 하는 선물 컨설턴트입니다.
+        prompt = f"""당신은 실제 쇼핑몰에서 구매 가능한 상품을 잘 아는 선물 컨설턴트입니다.
 
-다음 정보를 바탕으로 {MAX_RECOMMENDATIONS}개의 완벽한 선물 추천을 생성해주세요:
+다음 정보를 바탕으로 {MAX_RECOMMENDATIONS}개의 **실제 상품명**으로 선물 추천을 생성해주세요:
 
 받는 사람 프로필:
 - 나이: {request.recipient_age}세
@@ -106,21 +106,30 @@ class GiftRecommendationEngine:
 - 행사: {request.occasion}
 - 예산 범위: ${request.budget_min} - ${request.budget_max}{style_text}{restrictions_text}
 
-정확히 {MAX_RECOMMENDATIONS}개의 선물 추천을 포함하는 JSON 형식으로 응답해주세요. 각 추천에는 다음이 포함되어야 합니다:
-- title: 명확하고 간결한 선물 이름 (한글)
+**중요: title은 반드시 실제 존재하는 상품명으로 작성하세요**
+
+정확한 실제 상품명 예시:
+- "무선 블루투스 이어폰" (O)
+- "아로마 디퓨저 세트" (O)  
+- "스마트 워치" (O)
+- "프리미엄 디지털 미니맵 송풍" (X - 이상한 조합)
+- "리스트 LIST 미니맵" (X - 의미불명)
+
+정확히 {MAX_RECOMMENDATIONS}개의 선물 추천을 포함하는 JSON 형식으로 응답해주세요:
+- title: **실제 쇼핑몰에서 검색 가능한 정확한 상품명** (한글)
 - description: 왜 완벽한지 설명하는 2-3문장 설명 (한글)
-- category: 주요 카테고리 (전자제품, 패션, 도서 등, 한글)
+- category: 주요 카테고리 (전자제품, 홈리빙, 도서, 패션, 스포츠 등, 한글)
 - estimated_price: USD 가격 (정수)
 - currency: "USD" 또는 "KRW"
 - price_display: "$50" 또는 "₩65,000" 형식의 가격 표시
 - reasoning: 이 선물이 프로필에 맞는 이유 (한글)
 - confidence_score: 확신도 (0.0-1.0)
 
-중점 사항:
-1. 관심사와 관계를 바탕으로 한 개인화
-2. 행사와 예산에 적합함
-3. 실용적이면서도 사려 깊은 추천
-4. 받는 사람의 나이와 선호도 고려
+**검증 기준:**
+1. title이 네이버쇼핑에서 실제 검색 가능한 상품명인지 확인
+2. 관심사와 직접 연관된 구체적 상품 선택
+3. 예산 범위 내 현실적 가격 설정
+4. 받는 사람 프로필에 적합한 상품 선별
 
 모든 텍스트는 한글로 작성하고, 유효한 JSON 형식으로만 응답해주세요."""
 
