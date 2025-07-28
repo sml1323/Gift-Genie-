@@ -12,7 +12,7 @@ class GiftRequest(BaseModel):
     recipient_age: int = Field(..., ge=1, le=120, description="Recipient's age")
     recipient_gender: str = Field(..., pattern="^(male|female|neutral|남성|여성|중성)$", description="Recipient's gender")
     relationship: str = Field(..., description="Relationship to recipient (friend, family, colleague, partner, etc.)")
-    budget_min: int = Field(..., ge=0, description="Minimum budget amount")
+    budget_min: int = Field(0, ge=0, description="Minimum budget amount (optional, defaults to 0)")
     budget_max: int = Field(..., ge=1, description="Maximum budget amount")
     currency: Literal["USD", "KRW"] = Field(default="KRW", description="Budget currency (USD or KRW)")
     interests: List[str] = Field(..., min_items=1, max_items=5, description="List of recipient's interests")
@@ -38,7 +38,7 @@ class GiftRequest(BaseModel):
                 "recipient_age": 28,
                 "recipient_gender": "여성",
                 "relationship": "친구",
-                "budget_min": 65000,
+                "budget_min": 0,
                 "budget_max": 195000,
                 "currency": "KRW",
                 "interests": ["독서", "커피", "여행", "사진"],
