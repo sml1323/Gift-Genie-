@@ -209,9 +209,14 @@ class NaverShoppingClient:
         results = []
         items = data.get("items", [])
         
-        # 개선된 예산 범위 설정 - 현실적인 최소 가격 적용
-        # 예산의 40%를 최소가로 설정하여 의미있는 선물 가격 범위 확보
-        budget_min_krw = max(20000, int(budget_max_krw * 0.4))  # 예산의 40%, 최소 20,000원
+        # 개선된 예산 범위 설정 - 더 유연한 가격 범위 적용
+        # 예산의 20%를 최소가로 설정하되, 너무 높지 않게 조정
+        budget_min_krw = max(10000, int(budget_max_krw * 0.2))  # 예산의 20%, 최소 10,000원
+        
+        # 예산이 매우 높은 경우 (50만원 이상) 더 낮은 비율 적용
+        if budget_max_krw >= 500000:
+            budget_min_krw = max(50000, int(budget_max_krw * 0.15))  # 15%로 낮춤
+        
         logger.info(f"Budget filter: {budget_min_krw:,}원 - {budget_max_krw:,}원")
         
         if items:
@@ -960,71 +965,112 @@ class NaverGiftRecommendationEngine:
         }
 
     def _extract_search_keywords_from_ai_rec(self, ai_recommendation, request) -> List[str]:
-        """사용자 관심사 우선 검색 키워드 추출 (개선된 매칭 로직)"""
+        """AI 추천 기반 정확한 검색 키워드 추출 (수정됨: AI 추천 내용 우선)"""
         keywords = []
         
-        # 1. 사용자 관심사 최우선 반영 (확장된 매핑)
-        if request.interests and len(request.interests) > 0:
-            primary_interest = request.interests[0]
-            
-            # 확장된 관심사 매핑 (네이버쇼핑 최적화)
-            interest_mapping = {
-                # 전자제품 관련
-                "블루투스": "블루투스",
-                "이어폰": "이어폰", 
-                "헤드폰": "헤드폰",
-                "스피커": "스피커",
-                "무선": "블루투스",
-                "오디오": "이어폰",
-                "전자기기": "전자제품",
-                "디지털": "디지털기기",
-                # 기존 매핑
-                "독서": "책", "커피": "커피", "여행": "여행용품", 
-                "사진": "카메라", "운동": "운동용품", "요리": "주방용품", 
-                "음악": "이어폰", "게임": "게임기"
-            }
-            
-            # 우선 키워드 설정 (사용자 관심사 기반)
-            primary_keyword = interest_mapping.get(primary_interest, primary_interest)
-            keywords.append(primary_keyword)
-            
-            # 단순화된 카테고리 키워드 추가 (검색 성공률 향상)
-            category_keywords = {
-                "블루투스": ["블루투스스피커"],
-                "이어폰": ["이어폰"], 
-                "커피": ["커피"],  # 단순화: 커피메이커 → 커피
-                "독서": ["책"],
-                "게임": ["게임용품"]
-            }
-            
-            if primary_keyword in category_keywords:
-                keywords.extend(category_keywords[primary_keyword][:1])  # 카테고리 키워드 1개만 추가
-        
-        # 2. AI 추천에서 보완 키워드 추출 (사용자 관심사와 연관된 경우만)
+        # 1. AI 추천 제목에서 핵심 키워드 우선 추출
         title_clean = ai_recommendation.title.replace(',', ' ').replace('(', ' ').replace(')', ' ')
         title_words = [word.strip() for word in title_clean.split() if len(word.strip()) >= 2]
         
-        # 전자제품 관련 키워드만 AI 추천에서 보완 추출
-        if request.interests and any(interest in ["블루투스", "이어폰", "헤드폰", "스피커", "오디오", "무선"] for interest in request.interests):
-            tech_keywords = ["이어폰", "헤드폰", "스피커", "블루투스", "무선", "오디오"]
-            for word in title_words:
-                if any(tech_word in word for tech_word in tech_keywords) and word not in keywords:
-                    keywords.append(word)
-                    break  # 하나만 추가
+        # 브랜드명과 상품 타입 추출 (우선순위 1)
+        brand_product_keywords = []
         
-        # 3. 불용어 및 관련 없는 키워드 제거
+        # 주요 브랜드명 추출 (확장)
+        major_brands = [
+            "소니", "삼성", "애플", "LG", "아이폰", "갤럭시", "에어팟", "아이패드", 
+            "캐논", "니콘", "후지필름", "로라메르시에", "샤넬", "디올", "에스티로더",
+            "나이키", "아디다스", "언더아머", "뉴발란스", "컨버스", "반스",
+            "킨들", "페이퍼화이트", "맥북", "아이맥", "레노버", "화웨이", "샤오미"
+        ]
+        
+        # 상품 카테고리 키워드 추출 (확장)
+        product_categories = {
+            # 전자제품
+            "헤드폰": ["헤드폰", "이어폰"], "이어폰": ["이어폰", "헤드폰"], 
+            "스피커": ["스피커", "블루투스스피커"], "블루투스": ["블루투스", "무선이어폰"],
+            "카메라": ["카메라", "미러리스"], "미러리스": ["미러리스", "카메라"],
+            "노트북": ["노트북", "맥북"], "태블릿": ["태블릿", "아이패드"],
+            "킨들": ["킨들", "전자책"], "전자책": ["킨들", "전자책리더기"],
+            # 조명/가구
+            "조명": ["조명", "램프"], "램프": ["램프", "조명"], 
+            "스탠드": ["북스탠드", "조명스탠드"], "북스탠드": ["북스탠드", "독서등"],
+            "독서등": ["독서등", "스탠드조명"], "스탠드조명": ["스탠드조명", "데스크램프"],
+            # 뷰티
+            "오일": ["바디오일", "페이스오일"], "크림": ["크림", "로션"],
+            "향수": ["향수", "퍼퓸"], "립스틱": ["립스틱", "립글로스"],
+            # 패션
+            "시계": ["시계", "스마트워치"], "가방": ["가방", "백팩"],
+            "신발": ["운동화", "스니커즈"], "의류": ["티셔츠", "셔츠"],
+            # 문구/도서
+            "다이어리": ["다이어리", "플래너"], "플래너": ["플래너", "스케줄러"],
+            "노트": ["노트", "수첩"], "펜": ["펜", "볼펜"],
+            # 기타
+            "커피": ["커피", "원두"], "차": ["차", "티"], "책": ["도서", "북"],
+            "게임": ["게임기", "콘솔"], "운동": ["운동용품", "헬스"]
+        }
+        
+        # AI 추천 제목에서 브랜드와 상품 키워드 찾기
+        for word in title_words:
+            # 브랜드명 확인
+            if any(brand in word for brand in major_brands):
+                if word not in brand_product_keywords:
+                    brand_product_keywords.append(word)
+            
+            # 상품 카테고리 확인
+            for category, related_keywords in product_categories.items():
+                if category in word or any(cat in word for cat in related_keywords):
+                    # 가장 구체적인 키워드 선택
+                    best_keyword = category
+                    if any(cat in word for cat in related_keywords):
+                        # 더 구체적인 키워드가 있으면 그것을 사용
+                        for cat in related_keywords:
+                            if cat in word:
+                                best_keyword = cat
+                                break
+                    if best_keyword not in brand_product_keywords:
+                        brand_product_keywords.append(best_keyword)
+                    break
+        
+        # AI 추천에서 추출한 키워드를 최우선으로 사용
+        keywords.extend(brand_product_keywords[:2])  # 최대 2개
+        
+        # 2. AI 추천에서 키워드를 충분히 추출하지 못한 경우에만 사용자 관심사 보완
+        if len(keywords) < 2 and request.interests and len(request.interests) > 0:
+            primary_interest = request.interests[0]
+            
+            # 관심사 매핑 (보조적 역할)
+            interest_mapping = {
+                "독서": "도서", "커피": "커피", "여행": "여행용품", 
+                "사진": "카메라", "운동": "운동용품", "요리": "주방용품", 
+                "음악": "이어폰", "게임": "게임기", "뷰티": "화장품",
+                "패션": "의류", "전자기기": "전자제품", "홈카페": "커피용품"
+            }
+            
+            interest_keyword = interest_mapping.get(primary_interest, primary_interest)
+            if interest_keyword not in keywords:
+                keywords.append(interest_keyword)
+        
+        # 3. 불용어 제거
         stop_words = {'위한', '당신을', '완벽한', '특별한', '고급', '프리미엄', '추천', '선물', '세트', 
-                     '프라이빗', '북클럽', '구독권', '펜션', '숙박', '여행지', '투어'}
-        keywords = [kw for kw in keywords if kw not in stop_words]
+                     '프라이빗', '북클럽', '구독권', '펜션', '숙박', '여행지', '투어', '무선', 
+                     '노이즈', '캔슬링', '드립', '바디', '앤', '바스', 'EOS', 'M50'}
+        keywords = [kw for kw in keywords if kw not in stop_words and len(kw) >= 2]
         
-        # 4. 최종 키워드 정리 (최대 2개로 제한하여 검색 정확도 향상)
+        # 4. 최종 키워드 정리
         unique_keywords = []
         for keyword in keywords:
             if keyword and keyword not in unique_keywords:
                 unique_keywords.append(keyword)
         
-        final_keywords = unique_keywords[:2] if unique_keywords else [request.interests[0] if request.interests else "선물"]
-        logger.info(f"🔍 AI 추천 '{ai_recommendation.title}' -> 사용자 관심사 우선 키워드: {final_keywords}")
+        # 기본값 설정 (키워드가 없는 경우)
+        if not unique_keywords:
+            if request.interests and request.interests[0]:
+                unique_keywords = [request.interests[0]]
+            else:
+                unique_keywords = ["선물"]
+        
+        final_keywords = unique_keywords[:2]  # 최대 2개
+        logger.info(f"🔍 AI 추천 '{ai_recommendation.title}' -> 추출된 검색 키워드: {final_keywords}")
         return final_keywords
     
     async def _smart_integrate_recommendations(self, ai_recommendations: List, naver_products: List[NaverProductResult], request) -> List:
