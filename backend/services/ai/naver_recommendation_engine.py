@@ -210,8 +210,8 @@ class NaverShoppingClient:
         items = data.get("items", [])
         
         # 개선된 예산 범위 설정 - 현실적인 최소 가격 적용
-        # 예산의 1/3을 최소가로 설정하여 더 넓은 가격 범위 확보
-        budget_min_krw = max(10000, budget_max_krw // 3)  # 예산의 1/3, 최소 10,000원
+        # 예산의 40%를 최소가로 설정하여 의미있는 선물 가격 범위 확보
+        budget_min_krw = max(20000, int(budget_max_krw * 0.4))  # 예산의 40%, 최소 20,000원
         logger.info(f"Budget filter: {budget_min_krw:,}원 - {budget_max_krw:,}원")
         
         if items:
@@ -389,16 +389,18 @@ class NaverShoppingClient:
             elif len(keyword_clean) >= 2:
                 priority_keywords.append(keyword_clean)
         
-        # 검색어 조합 전략 - 네이버 쇼핑 최적화
-        # 단일 핵심 키워드 우선 사용 (네이버 쇼핑에서 잘 검색되는 패턴)
+        # 검색어 조합 전략 - 단순화된 키워드 우선 (검색 성공률 향상)
+        # 가장 기본적인 키워드 사용으로 더 많은 결과 확보
         naver_optimized_patterns = {
-            "주방용품": ["주방용품", "키친용품", "주방 세트"],
-            "게임": ["게임기", "콘솔", "닌텐도", "플레이스테이션"],
-            "운동": ["운동용품", "헬스용품", "피트니스"],
-            "커피": ["커피메이커", "원두", "커피머신"],
-            "이어폰": ["이어폰", "헤드폰", "무선이어폰", "블루투스"],
-            "노트북": ["노트북", "컴퓨터", "랩탑"],
-            "시계": ["시계", "손목시계", "스마트워치"]
+            "주방용품": ["주방용품", "키친용품"],
+            "게임": ["게임용품", "게임"],
+            "운동": ["운동용품", "헬스용품"],
+            "커피": ["커피", "커피용품"],  # 단순화: 커피메이커 → 커피
+            "이어폰": ["이어폰", "헤드폰"],
+            "노트북": ["노트북", "컴퓨터"],
+            "시계": ["시계", "손목시계"],
+            "책": ["책", "도서"],
+            "독서": ["책", "도서"]
         }
         
         if priority_keywords:
@@ -986,16 +988,17 @@ class NaverGiftRecommendationEngine:
             primary_keyword = interest_mapping.get(primary_interest, primary_interest)
             keywords.append(primary_keyword)
             
-            # 관련 키워드 추가 (블루투스 → 무선이어폰)
-            related_keywords = {
-                "블루투스": ["무선이어폰", "이어폰"],
-                "이어폰": ["블루투스", "헤드폰"], 
-                "커피": ["커피메이커", "원두"],
-                "게임": ["게임기", "콘솔"]
+            # 단순화된 카테고리 키워드 추가 (검색 성공률 향상)
+            category_keywords = {
+                "블루투스": ["블루투스스피커"],
+                "이어폰": ["이어폰"], 
+                "커피": ["커피"],  # 단순화: 커피메이커 → 커피
+                "독서": ["책"],
+                "게임": ["게임용품"]
             }
             
-            if primary_keyword in related_keywords:
-                keywords.extend(related_keywords[primary_keyword][:1])  # 관련 키워드 1개만 추가
+            if primary_keyword in category_keywords:
+                keywords.extend(category_keywords[primary_keyword][:1])  # 카테고리 키워드 1개만 추가
         
         # 2. AI 추천에서 보완 키워드 추출 (사용자 관심사와 연관된 경우만)
         title_clean = ai_recommendation.title.replace(',', ' ').replace('(', ' ').replace(')', ' ')
@@ -1183,17 +1186,18 @@ AI가 추천한 선물:
 3. **용도 적합성**: 추천 의도와 실제 상품의 용도가 일치하는가?
 4. **품질 점수**: 브랜드, 쇼핑몰, 상품명 품질
 
-**연관성 판단 예시:**
+**연관성 판단 예시 (완화된 기준):**
 - AI: "무선 이어폰", 상품: "블루투스 헤드폰" → 연관성 높음 (O)
 - AI: "아로마 디퓨저", 상품: "향초 세트" → 연관성 보통 (O)
+- AI: "커피 메이커", 상품: "커피" → 연관성 보통 (O)
+- AI: "독서용 스피커", 상품: "무선 이어폰" → 연관성 낮음이지만 허용 (O)
 - AI: "커피 메이커", 상품: "남성용 셔츠" → 연관성 없음 (X)
-- AI: "독서 램프", 상품: "반려동물 사료" → 연관성 없음 (X)
 
-**요청사항:**
-1. 연관성이 **높음** 또는 **보통** 수준인 상품만 선택
-2. 연관성이 **없는** 상품들만 있다면 "NONE"을 반환
-3. 가격만 맞다고 해서 관련 없는 상품을 선택하지 마세요
-4. 엄격한 품질 기준을 적용하여 사용자에게 실제 도움이 되는 상품만 선별
+**요청사항 (완화된 기준):**
+1. 연관성이 **높음**, **보통**, **낮음** 수준인 상품도 선택 가능
+2. 완전히 다른 카테고리(의류 vs 전자제품)만 아니면 허용
+3. 사용자 관심사와 간접적으로라도 연관이 있으면 선택
+4. 적합한 상품이 정말 없을 때만 "NONE" 반환
 
 **반환 형식:**
 - 적합한 상품이 있으면: 인덱스 번호 (0, 1, 2, 3, 4)
@@ -1299,8 +1303,8 @@ AI가 추천한 선물:
             price_score = 1.0 - (abs(product.lprice - target_price) / target_price)
             price_score = max(0, price_score) * 0.3  # 30% 가중치
             
-            # 관련성 점수 (AI 추천 제목과 상품명의 유사도)
-            relevance_score = self._calculate_relevance_score(ai_title, product.title) * 0.7  # 70% 가중치
+            # 관련성 점수 (AI 추천 제목과 상품명의 유사도) - 완화된 가중치
+            relevance_score = self._calculate_relevance_score(ai_title, product.title) * 0.5  # 50% 가중치로 완화
             
             total_score = price_score + relevance_score
             
