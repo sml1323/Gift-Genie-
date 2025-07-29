@@ -159,7 +159,7 @@ async def create_naver_recommendations(
         logger.info(f"Naver Shopping recommendation request: {request.recipient_age}yo {request.recipient_gender}, budget ${request.budget_min}-{request.budget_max}")
         
         engine = get_naver_engine()
-        response = await engine.generate_naver_recommendations(request)
+        response = await engine.generate_recommendations_with_retry(request)
         
         # Log metrics in background
         if response.success:

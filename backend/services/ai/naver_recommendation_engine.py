@@ -679,9 +679,11 @@ class NaverGiftRecommendationEngine:
     
     def __init__(self, openai_api_key: str, naver_client_id: str = "", naver_client_secret: str = ""):
         from services.ai.recommendation_engine import GiftRecommendationEngine
+        from services.ai.intelligent_query_refinement import IntelligentQueryRefinementEngine
         
         self.ai_engine = GiftRecommendationEngine(openai_api_key)
         self.naver_client = NaverShoppingClient(naver_client_id, naver_client_secret)
+        self.query_refiner = IntelligentQueryRefinementEngine(openai_api_key)
         self.naver_enabled = self.naver_client.enabled
     
     async def generate_naver_recommendations(self, request):
@@ -748,12 +750,37 @@ class NaverGiftRecommendationEngine:
                 logger.info(f"🎁 AI 추천 {i+1}: '{ai_rec.title}' (카테고리: {ai_rec.category})")
                 logger.info(f"  → 추출된 검색 키워드: {search_keywords}")
                 
-                # 각 AI 추천에 대해 다중 정렬 네이버 검색 수행 (더 많은 결과)
-                products = await self.naver_client.search_products_multi_sort(
-                    search_keywords, budget_max_krw, display=35  # 강화된 다중 정렬로 최대한 다양한 결과
+                # 각 AI 추천에 대해 지능형 재시도 메커니즘으로 검색 수행
+                gift_context = {
+                    'recipient_age': str(request.recipient_age),
+                    'recipient_gender': request.recipient_gender,
+                    'interests': request.interests,
+                    'budget_min': request.budget_min,
+                    'budget_max': request.budget_max,
+                    'occasion': request.occasion,
+                    'relationship': request.relationship
+                }
+                
+                # 5회 재시도 메커니즘 사용
+                async def search_wrapper(keywords, budget_max):
+                    return await self.naver_client.search_products_multi_sort(
+                        keywords, budget_max, display=35
+                    )
+                
+                products, refinement_session = await self.query_refiner.refine_search_with_retries(
+                    original_keywords=search_keywords,
+                    gift_context=gift_context,
+                    search_function=search_wrapper,
+                    budget_max_krw=budget_max_krw
                 )
                 
-                logger.info(f"  → 발견된 상품: {len(products)}개 (AI 추천 {i+1} 용)")
+                # 세션 결과 로깅
+                if refinement_session.final_success:
+                    logger.info(f"  ✅ 재시도 성공: {refinement_session.total_products_found}개 상품 발견 ({refinement_session.total_processing_time:.2f}s)")
+                else:
+                    logger.warning(f"  ⚠️ 재시도 부분 성공: {refinement_session.total_products_found}개 상품 발견")
+                
+                logger.info(f"  → 발견된 상품: {len(products)}개 (AI 추천 {i+1} 용) - 최종 키워드: {refinement_session.best_attempt.refined_keywords if refinement_session.best_attempt else search_keywords}")
                 if products:
                     price_range = f"₩{min(p.lprice for p in products):,} - ₩{max(p.lprice for p in products):,}"
                     logger.info(f"  → 가격 범위: {price_range}")
