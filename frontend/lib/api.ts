@@ -45,7 +45,7 @@ class GiftGenieAPI {
         onProgress('integrating', 80)
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/recommendations/naver`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/recommendations/retry`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

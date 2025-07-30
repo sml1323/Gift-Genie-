@@ -185,6 +185,62 @@ async def create_naver_recommendations(
         )
 
 
+@router.post("/recommendations/retry", response_model=EnhancedRecommendationResponse)
+async def create_retry_recommendations(
+    request: GiftRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Create gift recommendations using advanced retry mechanism
+    
+    This endpoint uses the improved recommendation system with:
+    1. Priority-based keyword combination generation
+    2. Intelligent brand diversity filtering
+    3. Quality-based retry mechanism with multiple attempts
+    4. Dynamic search strategy adaptation
+    
+    New Features:
+    - 우선순위 키워드 조합: 태그+대상자+이유 기반 검색 쿼리 생성
+    - 지능적 브랜드 필터링: 하드코딩 없는 동적 브랜드 추출 및 다양성 확보
+    - 품질 기반 재시도: 목표 개수까지 다양한 전략으로 재시도
+    
+    Benefits:
+    - Better keyword matching and search quality
+    - Guaranteed brand diversity without hardcoded lists
+    - Higher success rate through adaptive retry logic
+    - More relevant and varied product recommendations
+    """
+    try:
+        logger.info(f"🚀 Retry-based recommendation request: {request.recipient_age}yo {request.recipient_gender}, budget ${request.budget_min}-{request.budget_max}")
+        logger.info(f"🎯 Interests: {request.interests}, Occasion: {request.occasion}")
+        
+        engine = get_naver_engine()
+        response = await engine.generate_recommendations_with_retry(request)
+        
+        # Log metrics in background
+        if response.success:
+            background_tasks.add_task(
+                log_retry_metrics,
+                response.request_id,
+                response.pipeline_metrics,
+                len(response.recommendations)
+            )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Retry-based recommendation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "retry_recommendation_failed",
+                "message": "Failed to generate retry-based recommendations. Please try again.",
+                "fallback_suggestion": "Try the standard Naver endpoint: /api/v1/recommendations/naver",
+                "advanced_features": "Priority keywords, brand diversity, quality-based retry"
+            }
+        )
+
+
 async def log_naver_metrics(request_id: str, metrics, recommendation_count: int):
     """Background task to log Naver Shopping recommendation metrics"""
     logger.info(f"Naver Shopping metrics for {request_id}:")
@@ -195,6 +251,19 @@ async def log_naver_metrics(request_id: str, metrics, recommendation_count: int)
     logger.info(f"  - Recommendations: {recommendation_count}")
     logger.info(f"  - Search results: {metrics.search_results_count}")
     logger.info(f"  - Simulation mode: {metrics.cache_simulation}")
+
+
+async def log_retry_metrics(request_id: str, metrics, recommendation_count: int):
+    """Background task to log retry-based recommendation metrics"""
+    logger.info(f"🔄 Retry-based recommendation metrics for {request_id}:")
+    logger.info(f"  - Total time: {metrics.total_time:.2f}s")
+    logger.info(f"  - Search execution: {metrics.search_execution_time:.2f}s")
+    logger.info(f"  - Integration time: {metrics.integration_time:.2f}s")
+    logger.info(f"  - Final recommendations: {recommendation_count}")
+    logger.info(f"  - Search results processed: {metrics.search_results_count}")
+    logger.info(f"  - Product details: {metrics.product_details_count}")
+    logger.info(f"  - Simulation mode: {metrics.cache_simulation}")
+    logger.info(f"  ✨ Advanced features: Priority keywords + Brand diversity + Quality retry")
 
 
 # Note: Exception handlers should be added to the main app, not router

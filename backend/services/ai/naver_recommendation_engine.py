@@ -13,6 +13,10 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import aiohttp
 
+# Import models
+from models.request.recommendation import GiftRequest
+from models.response.recommendation import GiftRecommendation, EnhancedRecommendationResponse
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -126,16 +130,27 @@ class NaverShoppingClient:
         logger.info("📊 상품 품질 스코어 계산 중...")
         
         quality_scored_products = []
+        quality_filtered_count = 0
+        MIN_QUALITY_THRESHOLD = 0.65  # 최소 품질 점수 (기존보다 엄격하게)
+        
         for product in unique_products:
             # 품질 스코어 계산
-            quality_score = self.calculate_product_quality_score(product)
+            quality_score = self.naver_client.calculate_product_quality_score(product)
             product.quality_score = quality_score
             
             # 검색 방식 보너스 적용 (sim이 더 정확하므로 보너스)
             if getattr(product, 'search_method', 'sim') == 'sim':
                 product.quality_score += 0.1  # sim 검색 보너스
             
+            # 최소 품질 기준 필터링
+            if product.quality_score < MIN_QUALITY_THRESHOLD:
+                quality_filtered_count += 1
+                logger.info(f"품질 필터: '{product.title[:40]}...' 제외 - 품질점수 {product.quality_score:.2f} < {MIN_QUALITY_THRESHOLD}")
+                continue
+            
             quality_scored_products.append(product)
+        
+        logger.info(f"📊 품질 필터링 완료: {quality_filtered_count}개 저품질 상품 제외, {len(quality_scored_products)}개 고품질 상품 유지")
         
         # 품질 스코어 기준으로 내림차순 정렬
         quality_scored_products.sort(key=lambda p: p.quality_score, reverse=True)
@@ -566,8 +581,18 @@ class NaverShoppingClient:
             if mall in mall_lower:
                 return 0.6
         
-        # 기타 쇼핑몰
-        return 0.4
+        # 개인 스마트스토어나 소규모 쇼핑몰 추가 확인
+        suspicious_patterns = [
+            "smartstore.naver.com", "blog.naver.com", "cafe.naver.com",
+            "개인", "personal", "소상공인", "1인사업자", "임시매장"
+        ]
+        
+        for pattern in suspicious_patterns:
+            if pattern in mall_lower:
+                return 0.2  # 매우 낮은 신뢰도
+        
+        # 기타 쇼핑몰 (더 엄격하게)
+        return 0.3  # 기존 0.4 → 0.3으로 낮춤
     
     def _calculate_title_quality_score(self, title: str) -> float:
         """상품명 품질 점수 계산"""
@@ -993,8 +1018,12 @@ class NaverGiftRecommendationEngine:
             "킨들": ["킨들", "전자책"], "전자책": ["킨들", "전자책리더기"],
             # 조명/가구
             "조명": ["조명", "램프"], "램프": ["램프", "조명"], 
-            "스탠드": ["북스탠드", "조명스탠드"], "북스탠드": ["북스탠드", "독서등"],
+            "스탠드": ["북스탠드", "조명스탠드", "악보대", "독서대"], "북스탠드": ["북스탠드", "독서등"],
             "독서등": ["독서등", "스탠드조명"], "스탠드조명": ["스탠드조명", "데스크램프"],
+            # 음악/악기 (새로 추가)
+            "독서대": ["악보대", "피아노", "음악용품"], "악보대": ["악보대", "피아노용품", "음악스탠드"],
+            "피아노": ["피아노", "건반", "음악"], "키보드": ["키보드", "전자피아노", "건반"],
+            "악기": ["피아노", "기타", "바이올린"], "음악": ["악기", "피아노", "기타"],
             # 뷰티
             "오일": ["바디오일", "페이스오일"], "크림": ["크림", "로션"],
             "향수": ["향수", "퍼퓸"], "립스틱": ["립스틱", "립글로스"],
@@ -1042,8 +1071,9 @@ class NaverGiftRecommendationEngine:
             interest_mapping = {
                 "독서": "도서", "커피": "커피", "여행": "여행용품", 
                 "사진": "카메라", "운동": "운동용품", "요리": "주방용품", 
-                "음악": "이어폰", "게임": "게임기", "뷰티": "화장품",
-                "패션": "의류", "전자기기": "전자제품", "홈카페": "커피용품"
+                "음악": "피아노", "게임": "게임기", "뷰티": "화장품",
+                "패션": "의류", "전자기기": "전자제품", "홈카페": "커피용품",
+                "피아노": "피아노", "악기": "피아노", "클래식": "피아노"
             }
             
             interest_keyword = interest_mapping.get(primary_interest, primary_interest)
@@ -1700,3 +1730,454 @@ AI가 추천한 선물:
         
         logger.info(f"Created {len(mock_response.recommendations)} fallback AI recommendations")
         return mock_response
+    
+    # ===== 개선된 키워드 조합 및 브랜드 필터링 시스템 =====
+    
+    def generate_priority_search_queries(self, request: GiftRequest) -> List[str]:
+        """
+        사용자 요청 정보를 바탕으로 우선순위가 높은 검색 쿼리 리스트 생성
+        구체적 → 일반적 순서로 정렬
+        """
+        
+        # 1. 기본 정보 추출 및 정규화
+        interests = request.interests  # ["독서", "커피", "여행"]
+        age_group = self._get_age_group(request.recipient_age)  # "20대", "30대"
+        gender = self._normalize_gender(request.recipient_gender)  # "남성", "여성"
+        occasion = request.occasion  # "생일", "기념일"
+        relationship = request.relationship  # "친구", "연인"
+        
+        # 2. 우선순위별 조합 생성
+        priority_queries = []
+        
+        # Level 1: 최고 우선순위 (관심사 + 대상자 + 행사)
+        for interest in interests[:2]:  # 상위 2개 관심사만
+            # 관심사 + 성별 + 나이대 + 행사
+            query = f"{interest} {gender} {age_group} {occasion}"
+            priority_queries.append(query)
+            
+            # 관심사 + 관계 + 행사
+            query = f"{interest} {relationship} {occasion}"
+            priority_queries.append(query)
+        
+        # Level 2: 높은 우선순위 (관심사 + 대상자)
+        for interest in interests:
+            # 관심사 + 성별 + 나이대
+            query = f"{interest} {gender} {age_group}"
+            priority_queries.append(query)
+            
+            # 관심사 + 관계
+            query = f"{interest} {relationship}"
+            priority_queries.append(query)
+        
+        # Level 3: 중간 우선순위 (관심사 + 행사)
+        for interest in interests:
+            query = f"{interest} {occasion}"
+            priority_queries.append(query)
+        
+        # Level 4: 기본 우선순위 (관심사만)
+        for interest in interests:
+            priority_queries.append(interest)
+        
+        # Level 5: 폴백 (일반적 선물)
+        priority_queries.extend([
+            f"{gender} {age_group} {occasion}",
+            f"{relationship} {occasion}",
+            f"{occasion} 선물",
+            "선물"
+        ])
+        
+        # 중복 제거 및 정리
+        unique_queries = []
+        seen = set()
+        for query in priority_queries:
+            normalized_query = query.strip()
+            if normalized_query and normalized_query not in seen:
+                unique_queries.append(normalized_query)
+                seen.add(normalized_query)
+        
+        logger.info(f"Generated {len(unique_queries)} priority search queries")
+        logger.info(f"Top 5 queries: {unique_queries[:5]}")
+        
+        return unique_queries[:15]  # 최대 15개 쿼리
+    
+    def _get_age_group(self, age: int) -> str:
+        """나이를 연령대로 변환"""
+        if age < 20:
+            return "10대"
+        elif age < 30:
+            return "20대"
+        elif age < 40:
+            return "30대"
+        elif age < 50:
+            return "40대"
+        else:
+            return "50대이상"
+    
+    def _normalize_gender(self, gender: str) -> str:
+        """성별 정규화"""
+        gender_lower = gender.lower().strip()
+        if gender_lower in ["male", "남성", "남"]:
+            return "남성"
+        elif gender_lower in ["female", "여성", "여"]:
+            return "여성"
+        else:
+            return "중성"
+    
+    def extract_brand_intelligently(self, title: str, brand_field: str, mall_name: str) -> str:
+        """제품명과 브랜드 필드에서 지능적으로 브랜드 추출"""
+        import re
+        
+        # 1차: API의 brand 필드 사용 (가장 신뢰성 높음)
+        if brand_field and brand_field.strip():
+            return self._normalize_brand_name(brand_field.strip())
+        
+        # 2차: 제품명에서 브랜드 패턴 추출
+        brand_patterns = [
+            r'^([A-Za-z가-힣]+)\s+',  # 맨 앞 단어
+            r'[\[(]([A-Za-z가-힣]+)[\)\]]',  # 괄호 안의 브랜드
+            r'(\w+)(?=\s*(?:제품|상품|모델))',  # "제품", "상품", "모델" 앞의 단어
+        ]
+        
+        for pattern in brand_patterns:
+            match = re.search(pattern, title)
+            if match:
+                potential_brand = match.group(1)
+                if self._is_valid_brand_name(potential_brand):
+                    return self._normalize_brand_name(potential_brand)
+        
+        # 3차: 쇼핑몰명으로 폴백
+        return self._normalize_brand_name(mall_name)
+    
+    def _is_valid_brand_name(self, name: str) -> bool:
+        """브랜드명 유효성 검사"""
+        if len(name) < 2 or len(name) > 20:
+            return False
+        
+        # 일반적이지 않은 단어들 필터링
+        invalid_words = {"상품", "제품", "모델", "세트", "선물", "추천", "할인", "특가", "신제품", "최신"}
+        return name.lower() not in invalid_words
+    
+    def _normalize_brand_name(self, brand: str) -> str:
+        """브랜드명 정규화"""
+        return brand.strip().title()
+    
+    def ensure_brand_diversity(self, products: List[NaverProductResult], 
+                              target_count: int) -> List[NaverProductResult]:
+        """브랜드 다양성을 보장하면서 최고 품질 상품 선택"""
+        
+        # 브랜드별 그룹화 및 품질 점수 계산
+        brand_groups = {}
+        for product in products:
+            brand = self.extract_brand_intelligently(
+                product.title, product.brand, product.mallName
+            )
+            
+            if brand not in brand_groups:
+                brand_groups[brand] = []
+            
+            # 품질 점수 추가 계산
+            if not hasattr(product, 'quality_score') or product.quality_score is None:
+                product.quality_score = self.naver_client.calculate_product_quality_score(product)
+            brand_groups[brand].append(product)
+        
+        # 각 브랜드별로 최고 품질 상품만 유지
+        selected_products = []
+        for brand, products_in_brand in brand_groups.items():
+            # 품질 점수 기준으로 정렬
+            best_product = max(products_in_brand, key=lambda p: p.quality_score)
+            selected_products.append(best_product)
+            
+            # 목표 개수에 도달하면 중단
+            if len(selected_products) >= target_count:
+                break
+        
+        # 품질 점수 기준으로 최종 정렬
+        result = sorted(selected_products, key=lambda p: p.quality_score, reverse=True)[:target_count]
+        
+        logger.info(f"Brand diversity ensured: {len(brand_groups)} brands → {len(result)} selected")
+        for i, product in enumerate(result):
+            brand = self.extract_brand_intelligently(product.title, product.brand, product.mallName)
+            logger.info(f"  #{i+1}: {brand} - {product.title[:30]}... (품질점수: {product.quality_score:.2f})")
+        
+        return result
+    
+    # ===== 품질 기반 재시도 메커니즘 =====
+    
+    async def generate_recommendations_with_retry(self, request: GiftRequest) -> "EnhancedRecommendationResponse":
+        """품질 기반 재시도 메커니즘이 포함된 추천 생성"""
+        from datetime import datetime
+        
+        start_time = datetime.now()
+        request_id = f"retry_req_{int(start_time.timestamp())}"
+        
+        target_count = 5  # 목표 추천 개수
+        max_retries = 4   # 최대 재시도 횟수
+        quality_threshold = 0.6  # 최소 품질 점수
+        
+        all_attempts = []
+        best_recommendations = []
+        
+        logger.info(f"🔄 Starting retry-based recommendation generation (target: {target_count})")
+        
+        try:
+            # 우선순위 검색 쿼리 생성
+            priority_queries = self.generate_priority_search_queries(request)
+            
+            # Use KRW budget directly for Naver Shopping
+            if request.currency == "KRW":
+                budget_max_krw = request.budget_max
+            else:
+                budget_max_krw = request.budget_max * USD_TO_KRW_RATE
+            
+            for attempt in range(max_retries):
+                logger.info(f"🔄 Attempt {attempt + 1}/{max_retries}")
+                
+                # 시도별 다른 전략 적용
+                strategy = self._get_retry_strategy(attempt)
+                logger.info(f"  → Strategy: {strategy['name']}")
+                
+                # 검색 쿼리 선택 (시도마다 다른 쿼리 사용)
+                query_batch = self._select_queries_for_attempt(priority_queries, attempt, strategy)
+                logger.info(f"  → Using {len(query_batch)} queries: {query_batch[:3]}...")
+                
+                # 네이버 검색 실행
+                attempt_products = []
+                for query in query_batch:
+                    products = await self.naver_client.search_products(
+                        [query], 
+                        int(budget_max_krw * strategy['budget_flexibility']),
+                        display=strategy['display_count'],
+                        sort=strategy['sort_method']
+                    )
+                    attempt_products.extend(products)
+                
+                # 품질 점수 계산 및 필터링
+                current_threshold = self._get_quality_threshold(attempt, quality_threshold)
+                quality_products = [
+                    p for p in attempt_products 
+                    if self.naver_client.calculate_product_quality_score(p) >= current_threshold
+                ]
+                
+                # 브랜드 다양성 확보
+                diverse_products = self.ensure_brand_diversity(quality_products, target_count)
+                
+                logger.info(f"  → Results: {len(attempt_products)} found, {len(quality_products)} quality passed, {len(diverse_products)} final")
+                
+                # 성공 조건 확인
+                if len(diverse_products) >= target_count:
+                    logger.info(f"✅ Target achieved! {len(diverse_products)} recommendations ready")
+                    best_recommendations = diverse_products
+                    break
+                
+                # 현재까지 최고 결과 업데이트
+                if len(diverse_products) > len(best_recommendations):
+                    best_recommendations = diverse_products
+                
+                all_attempts.append({
+                    'attempt': attempt + 1,
+                    'strategy': strategy['name'],
+                    'queries_used': len(query_batch),
+                    'total_found': len(attempt_products),
+                    'quality_passed': len(quality_products),
+                    'final_count': len(diverse_products),
+                    'quality_threshold': current_threshold
+                })
+            
+            # 최소 보장 로직 (모든 시도가 실패한 경우)
+            if len(best_recommendations) < 2:  # 최소 2개는 보장
+                logger.warning("All retry attempts failed, using fallback recommendations")
+                fallback_recommendations = await self._generate_fallback_naver_products(request)
+                best_recommendations.extend(fallback_recommendations[:target_count - len(best_recommendations)])
+            
+            # Enhanced 추천으로 변환
+            enhanced_recommendations = await self._convert_naver_to_enhanced_recommendations(
+                best_recommendations, request
+            )
+            
+            # 메트릭 수집
+            total_time = (datetime.now() - start_time).total_seconds()
+            
+            from models.response.recommendation import (
+                EnhancedRecommendationResponse, 
+                MCPPipelineMetrics
+            )
+            
+            metrics = MCPPipelineMetrics(
+                ai_generation_time=0.0,  # AI 생성 안함 (우선순위 쿼리 사용)
+                search_execution_time=total_time * 0.8,  # 대부분 검색 시간
+                scraping_execution_time=0.0,  # 네이버 API는 스크래핑 불필요
+                integration_time=total_time * 0.2,  # 통합 시간
+                total_time=total_time,
+                search_results_count=len(best_recommendations),
+                product_details_count=len(best_recommendations),
+                cache_simulation=not self.naver_enabled
+            )
+            
+            logger.info(f"🎯 Retry-based recommendation completed in {total_time:.2f}s")
+            logger.info(f"📊 Attempts summary: {len(all_attempts)} attempts, final count: {len(enhanced_recommendations)}")
+            
+            return EnhancedRecommendationResponse(
+                request_id=request_id,
+                recommendations=enhanced_recommendations,
+                search_results=self._convert_naver_to_search_results(best_recommendations),
+                pipeline_metrics=metrics,
+                total_processing_time=total_time,
+                created_at=start_time.isoformat(),
+                success=True,
+                mcp_enabled=False,
+                simulation_mode=not self.naver_enabled,
+                error_message=None
+            )
+            
+        except Exception as e:
+            logger.error(f"Retry-based recommendation failed: {str(e)}")
+            total_time = (datetime.now() - start_time).total_seconds()
+            
+            from models.response.recommendation import (
+                EnhancedRecommendationResponse, 
+                MCPPipelineMetrics
+            )
+            
+            return EnhancedRecommendationResponse(
+                request_id=request_id,
+                recommendations=[],
+                search_results=[],
+                pipeline_metrics=MCPPipelineMetrics(
+                    ai_generation_time=0, search_execution_time=0,
+                    scraping_execution_time=0, integration_time=0, 
+                    total_time=total_time, search_results_count=0, 
+                    product_details_count=0, cache_simulation=True
+                ),
+                total_processing_time=total_time,
+                created_at=start_time.isoformat(),
+                success=False,
+                mcp_enabled=False,
+                simulation_mode=True,
+                error_message=str(e)
+            )
+    
+    def _get_retry_strategy(self, attempt: int) -> Dict[str, Any]:
+        """시도별 재시도 전략 반환"""
+        from typing import Dict, Any
+        
+        strategies = [
+            # 1차: 고품질 중심
+            {
+                'name': 'high_quality',
+                'display_count': 20,
+                'sort_method': 'sim',  # 정확도 우선
+                'budget_flexibility': 1.0,  # 예산 엄격
+                'quality_weight': 1.0
+            },
+            # 2차: 다양성 중심  
+            {
+                'name': 'diversity_focused',
+                'display_count': 30,
+                'sort_method': 'asc',  # 가격 낮은 순
+                'budget_flexibility': 1.2,  # 예산 20% 확장
+                'quality_weight': 0.8
+            },
+            # 3차: 범위 확장
+            {
+                'name': 'expanded_range',
+                'display_count': 40,
+                'sort_method': 'dsc',  # 가격 높은 순
+                'budget_flexibility': 1.5,  # 예산 50% 확장
+                'quality_weight': 0.6
+            },
+            # 4차: 최대 범위 (최후의 수단)
+            {
+                'name': 'maximum_range',
+                'display_count': 50,
+                'sort_method': 'sim',
+                'budget_flexibility': 2.0,  # 예산 100% 확장
+                'quality_weight': 0.4
+            }
+        ]
+        
+        return strategies[min(attempt, len(strategies) - 1)]
+    
+    def _select_queries_for_attempt(self, priority_queries: List[str], attempt: int, strategy: Dict[str, Any]) -> List[str]:
+        """시도별 검색 쿼리 선택"""
+        # 시도마다 다른 쿼리 범위 사용
+        if attempt == 0:
+            # 1차: 최고 우선순위 쿼리 3개
+            return priority_queries[:3]
+        elif attempt == 1:
+            # 2차: 중간 우선순위 쿼리 4개
+            return priority_queries[3:7]
+        elif attempt == 2:
+            # 3차: 더 넓은 범위 5개
+            return priority_queries[7:12]
+        else:
+            # 4차: 전체 쿼리 사용
+            return priority_queries[:8]
+    
+    def _get_quality_threshold(self, attempt: int, base_threshold: float) -> float:
+        """시도별 품질 임계값 조정"""
+        # 시도할수록 품질 기준을 점진적으로 낮춤
+        reduction = attempt * 0.1
+        return max(0.3, base_threshold - reduction)
+    
+    async def _generate_fallback_naver_products(self, request: GiftRequest) -> List[NaverProductResult]:
+        """최후의 폴백: 기본 검색어로 상품 검색"""
+        logger.info("🆘 Generating fallback Naver products")
+        
+        fallback_queries = [request.occasion, "선물", "추천"]
+        budget_krw = request.budget_max if request.currency == "KRW" else request.budget_max * USD_TO_KRW_RATE
+        
+        fallback_products = []
+        for query in fallback_queries:
+            products = await self.naver_client.search_products(
+                [query], budget_krw, display=10, sort="sim"
+            )
+            fallback_products.extend(products)
+            
+            if len(fallback_products) >= 5:
+                break
+        
+        return fallback_products[:5]
+    
+    async def _convert_naver_to_enhanced_recommendations(self, naver_products: List[NaverProductResult], request: GiftRequest) -> List["GiftRecommendation"]:
+        """네이버 상품을 Enhanced 추천으로 변환"""
+        from models.response.recommendation import GiftRecommendation
+        
+        enhanced_recommendations = []
+        
+        for i, product in enumerate(naver_products):
+            # 추천 이유 생성
+            reasoning = self._generate_reasoning_for_naver_product(product, request)
+            
+            recommendation = GiftRecommendation(
+                title=product.title,
+                description=f"{product.category3} 카테고리의 인기 상품입니다. {product.mallName}에서 판매중입니다.",
+                category=product.category3 or "일반 상품",
+                estimated_price=product.lprice,
+                currency="KRW",
+                price_display=f"₩{product.lprice:,}",
+                reasoning=reasoning,
+                purchase_link=product.link,
+                image_url=product.image,
+                confidence_score=getattr(product, 'quality_score', 0.8) * 0.9  # 품질점수 기반
+            )
+            
+            enhanced_recommendations.append(recommendation)
+        
+        return enhanced_recommendations
+    
+    def _generate_reasoning_for_naver_product(self, product: NaverProductResult, request: GiftRequest) -> str:
+        """네이버 상품에 대한 추천 이유 생성"""
+        # 간단한 템플릿 기반 추천 이유 생성
+        age_group = self._get_age_group(request.recipient_age)
+        occasion = request.occasion
+        
+        brand = self.extract_brand_intelligently(product.title, product.brand, product.mallName)
+        
+        reasons = [
+            f"{age_group}에게 인기가 높은 {product.category3} 상품입니다.",
+            f"{occasion}에 어울리는 실용적인 선물입니다.",
+            f"{brand} 브랜드의 신뢰할 수 있는 제품입니다." if brand != product.mallName else "",
+            f"""가격대(₩{product.lprice:,})가 예산에 적합합니다."""
+        ]
+        
+        return " ".join([r for r in reasons if r])
